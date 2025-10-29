@@ -1,0 +1,17 @@
+{
+  "name": "shared",
+  "version": "1.0.0",
+  "description": "**Purpose:** Shared utilities and configurations used by both backend (Node.js) and Flask detection service (Python).",
+  "main": "logger.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "winston": "^3.18.3",
+    "winston-daily-rotate-file": "^5.0.0"
+  }
+}
