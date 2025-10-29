@@ -1,2 +1,11 @@
-python-dotenv>=1.0.0
-colorlog>=6.7.0
+Flask==3.0.0
+flask-cors==4.0.0
+opencv-python==4.8.1.78
+ultralytics==8.0.196
+requests==2.31.0
+python-dotenv==1.0.0
+colorlog==6.7.0
+torch==2.1.0
+torchvision==0.16.0
+Pillow==10.1.0
+numpy==1.24.3
