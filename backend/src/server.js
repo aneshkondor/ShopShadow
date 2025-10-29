@@ -80,6 +80,7 @@ const productsRoutes = require('./routes/products');
 const basketRoutes = require('./routes/basket');
 const deviceRoutes = require('./routes/devices');
 const orderRoutes = require('./routes/orders');
+const adminRoutes = require('./routes/admin');
 
 // Import utility functions
 const { initializeCleanupJobs } = require('./utils/cleanup');
@@ -108,6 +109,9 @@ app.use('/api/devices', deviceRoutes);
 
 // Order routes (create order, order history, order details)
 app.use('/api/orders', orderRoutes);
+
+// Admin routes (user management, order management, analytics)
+app.use('/api/admin', adminRoutes);
 
 // =============================================================================
 // Error Handling
