@@ -329,5 +329,5 @@ async function cleanupBasket(userId, deviceId, transaction = null) {
 }
 
 // Export router and utility function
+router.cleanupBasket = cleanupBasket;
 module.exports = router;
-module.exports.cleanupBasket = cleanupBasket;
