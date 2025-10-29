@@ -41,3 +41,37 @@ backend/
 - `/api/basket/*` - Basket state and pending approvals
 - `/api/orders/*` - Order creation and history
 - `/api/admin/*` - Admin management and analytics
+
+## Environment Setup
+
+1. Copy the environment template:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Edit `.env` and configure:
+   - **DATABASE_URL**: Your local PostgreSQL connection string
+   - **JWT_SECRET**: Generate with `openssl rand -base64 32`
+   - **API_PORT**: Default 3001 (or change if port conflict)
+   - **LOG_FILE_PATH**: Default `./logs` (will be created automatically)
+
+3. Create PostgreSQL database:
+   ```bash
+   createdb shopshadow
+   ```
+
+4. Run database migrations:
+   ```bash
+   npm run migrate:up
+   ```
+
+5. Seed database with test data:
+   ```bash
+   psql shopshadow < seed.sql
+   # or: node seed.js
+   ```
+
+6. Start the server:
+   ```bash
+   npm start
+   ```

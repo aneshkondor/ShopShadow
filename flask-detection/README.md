@@ -56,3 +56,44 @@ flask-detection/
 - `CONFIDENCE_THRESHOLD`: Detection confidence threshold (default 0.7)
 - `BACKEND_API_URL`: Node.js backend URL for API calls
 - `DETECTION_INTERVAL`: Seconds between detection cycles (default 5)
+
+## Environment Setup
+
+1. Copy the environment template:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Edit `.env` and configure:
+   - **BACKEND_API_URL**: Backend URL (default `http://localhost:3001`)
+   - **CAMERA_INDEX**: Camera device index (0 for built-in, 1+ for USB)
+   - **CONFIDENCE_THRESHOLD**: Detection threshold (default 0.7)
+   - **DETECTION_INTERVAL**: Seconds between detections (default 5)
+
+3. Install Python dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. Start the detection service:
+   ```bash
+   python main.py
+   ```
+
+## Camera Setup
+
+### macOS Permission
+If camera access is denied:
+1. System Preferences → Security & Privacy → Camera
+2. Allow Terminal (or your IDE) to access the camera
+3. Restart the terminal/IDE
+
+### Finding Camera Index
+Test different camera indexes:
+```bash
+# Test camera 0
+CAMERA_INDEX=0 python -c "import cv2; cap = cv2.VideoCapture(0); print('Camera 0:', cap.isOpened())"
+
+# Test camera 1
+CAMERA_INDEX=1 python -c "import cv2; cap = cv2.VideoCapture(1); print('Camera 1:', cap.isOpened())"
+```
