@@ -39,6 +39,17 @@ backend/
 - `/api/products` - Product catalog (public + admin CRUD)
 - `/api/devices/*` - Device registration and pairing
 - `/api/basket/*` - Basket state and pending approvals
+## Change Log (Backend)
+
+- Task 2.6: Implemented low-confidence item approval workflow
+  - Added pending item routes in `src/routes/basket.js`
+  - Kept file size under 300 lines by extracting core routes to `src/routes/basket_core.js`
+  - Endpoints:
+    - `POST /api/basket/pending-items` (no auth)
+    - `GET /api/basket/:userId/pending-items` (auth)
+    - `POST /api/basket/pending-items/:itemId/approve` (auth)
+    - `POST /api/basket/pending-items/:itemId/decline` (auth)
+
 - `/api/orders/*` - Order creation and history
 - `/api/admin/*` - Admin management and analytics
 
