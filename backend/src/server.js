@@ -79,6 +79,7 @@ const authRoutes = require('./routes/auth');
 const productsRoutes = require('./routes/products');
 const basketRoutes = require('./routes/basket');
 const deviceRoutes = require('./routes/devices');
+const orderRoutes = require('./routes/orders');
 
 // Import utility functions
 const { initializeCleanupJobs } = require('./utils/cleanup');
@@ -105,9 +106,8 @@ app.use('/api/basket', basketRoutes);
 // Device routes (registration, pairing, status, disconnect)
 app.use('/api/devices', deviceRoutes);
 
-// API routes will be added here in later tasks
-// app.use('/api/devices', deviceRoutes);
-// app.use('/api/orders', orderRoutes);
+// Order routes (create order, order history, order details)
+app.use('/api/orders', orderRoutes);
 
 // =============================================================================
 // Error Handling
