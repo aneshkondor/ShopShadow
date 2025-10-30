@@ -1,20 +1,60 @@
-"""
-Detection logic with confidence-based routing.
-High confidence (≥0.7) → basket (auto-add)
-Low confidence (<0.7) → pending (requires approval)
-"""
-
 from collections import Counter
+from typing import Dict, Iterable, List, Tuple
 import sys
 import os
+
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 
 
 from shared.logger import logger
 from models.yolo_detector import runInference, getProductFromClass
 
+DEFAULT_DETECTION_FLOOR = 0.3
 
-def processFrame(frame, model, threshold=0.7):
+
+def _round_confidence(value: float) -> float:
+    """Round confidence values to four decimal places for backend requests."""
+    return round(float(value), 4)
+
+
+def _group_by_class(detections: Iterable[Dict]) -> Dict[int, List[Dict]]:
+    """Group detections by class ID for aggregation."""
+    grouped: Dict[int, List[Dict]] = {}
+    for detection in detections:
+        class_id = detection.get('class_id')
+        if class_id is None:
+            logger.debug("Skipping detection without class_id: %s", detection)
+            continue
+        grouped.setdefault(class_id, []).append(detection)
+    return grouped
+
+
+def _format_basket_payload(product: Dict, detections: List[Dict], device_id: str) -> Dict:
+    """Build payload for basket routing."""
+    confidences = [float(d.get('confidence', 0.0)) for d in detections]
+    max_conf = max(confidences) if confidences else 0.0
+    return {
+        "productId": product["product_id"],
+        "quantity": len(detections),
+        "confidence": _round_confidence(max_conf),
+        "deviceId": device_id,
+    }
+
+
+def _format_pending_payload(product: Dict, detections: List[Dict], device_id: str) -> Dict:
+    """Build payload for pending routing."""
+    confidences = [float(d.get('confidence', 0.0)) for d in detections]
+    avg_conf = sum(confidences) / len(confidences) if confidences else 0.0
+    return {
+        "productId": product["product_id"],
+        "name": product["product_name"],
+        "quantity": len(detections),
+        "confidence": _round_confidence(avg_conf),
+        "deviceId": device_id,
+    }
+
+
+def processFrame(frame, model, threshold: float = 0.7, detection_floor: float = DEFAULT_DETECTION_FLOOR):
     """
     Process a camera frame through YOLO detection.
 
@@ -22,17 +62,43 @@ def processFrame(frame, model, threshold=0.7):
         frame: OpenCV image (numpy array)
         model: YOLO model instance
         threshold: Confidence threshold (default 0.7)
+        detection_floor: Minimum confidence to keep detections (default 0.3)
 
     Returns:
         tuple: (high_confidence_detections, low_confidence_detections)
     """
-    # 1. Run YOLO inference
-    
-    detections = runInference(model, frame, confidence_threshold=0.5)  # Lower threshold to catch all
+    detection_floor = max(0.0, min(1.0, detection_floor))
+    threshold = max(0.0, min(1.0, threshold))
+
+    if detection_floor > threshold:
+        logger.warning(
+            "Detection floor %.2f is above threshold %.2f; adjusting floor to threshold",
+            detection_floor,
+            threshold,
+        )
+        detection_floor = threshold
+
+    # 1. Run YOLO inference with floor confidence to capture low-confidence detections
+    detections = runInference(model, frame, confidence_threshold=detection_floor)
 
     # 2. Separate by confidence
-    high_conf = [d for d in detections if d['confidence'] >= threshold]
-    low_conf = [d for d in detections if d['confidence'] < threshold and d['confidence'] >= 0.5]
+    high_conf = []
+    low_conf = []
+
+    for detection in detections:
+        confidence = float(detection.get('confidence', 0.0))
+        if confidence >= threshold:
+            high_conf.append(detection)
+        elif confidence >= detection_floor:
+            low_conf.append(detection)
+
+    logger.debug(
+        "Frame processed with threshold=%.2f floor=%.2f → %d high, %d low",
+        threshold,
+        detection_floor,
+        len(high_conf),
+        len(low_conf),
+    )
 
     return (high_conf, low_conf)
 
@@ -76,46 +142,29 @@ def routeDetections(high_conf, low_conf, mapping, device_id):
     basket_payloads = []
     pending_payloads = []
 
-    # Count items in each category
-    high_counts = countItems(high_conf)
-    low_counts = countItems(low_conf)
+    high_grouped = _group_by_class(high_conf)
+    low_grouped = _group_by_class(low_conf)
 
-    # Process high confidence (basket)
-    for class_id, quantity in high_counts.items():
+    for class_id, detections in high_grouped.items():
         product = getProductFromClass(class_id, mapping)
         if product is None:
-            logger.warning(f"Unmapped class {class_id} in high confidence detections")
+            logger.warning("Unmapped class %s in high confidence detections", class_id)
             continue
 
-        # Get max confidence for this class
-        confidences = [d['confidence'] for d in high_conf if d['class_id'] == class_id]
-        max_conf = max(confidences)
+        basket_payloads.append(_format_basket_payload(product, detections, device_id))
 
-        payload = {
-            'product_id': product['product_id'],
-            'quantity': quantity,
-            'confidence': max_conf
-        }
-        basket_payloads.append(payload)
-
-    # Process low confidence (pending)
-    for class_id, quantity in low_counts.items():
+    for class_id, detections in low_grouped.items():
         product = getProductFromClass(class_id, mapping)
         if product is None:
-            logger.warning(f"Unmapped class {class_id} in low confidence detections")
+            logger.warning("Unmapped class %s in low confidence detections", class_id)
             continue
 
-        # Get confidence for this class
-        confidences = [d['confidence'] for d in low_conf if d['class_id'] == class_id]
-        avg_conf = sum(confidences) / len(confidences)
+        pending_payloads.append(_format_pending_payload(product, detections, device_id))
 
-        payload = {
-            'product_id': product['product_id'],
-            'name': product['product_name'],
-            'quantity': quantity,
-            'confidence': avg_conf
-        }
-        pending_payloads.append(payload)
-
-    logger.info(f"Routed: {len(basket_payloads)} to basket, {len(pending_payloads)} to pending")
+    logger.info(
+        "Routed detections → basket: %d, pending: %d (device %s)",
+        len(basket_payloads),
+        len(pending_payloads),
+        device_id,
+    )
     return (basket_payloads, pending_payloads)

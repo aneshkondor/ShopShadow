@@ -150,27 +150,45 @@ def main():
             # High confidence → basket
             for payload in basket_payloads:
                 success = backend.sendToBasket(
-                    product_id=payload['product_id'],
+                    product_id=payload['productId'],
                     quantity=payload['quantity'],
                     confidence=payload['confidence']
                 )
                 if success:
-                    logger.info(f"✅ Added to basket: {payload['product_id']} x{payload['quantity']}")
+                    logger.info(
+                        "✅ Added to basket: %s x%d (device %s)",
+                        payload['productId'],
+                        payload['quantity'],
+                        payload.get('deviceId'),
+                    )
                 else:
-                    logger.error(f"❌ Failed to add to basket: {payload['product_id']}")
+                    logger.error(
+                        "❌ Failed to add to basket: %s (device %s)",
+                        payload['productId'],
+                        payload.get('deviceId'),
+                    )
 
             # Low confidence → pending
             for payload in pending_payloads:
                 success = backend.sendToPending(
-                    product_id=payload['product_id'],
+                    product_id=payload['productId'],
                     name=payload['name'],
                     quantity=payload['quantity'],
                     confidence=payload['confidence']
                 )
                 if success:
-                    logger.info(f"⏳ Added to pending: {payload['name']} x{payload['quantity']}")
+                    logger.info(
+                        "⏳ Added to pending: %s x%d (device %s)",
+                        payload['name'],
+                        payload['quantity'],
+                        payload.get('deviceId'),
+                    )
                 else:
-                    logger.warning(f"⚠️  Failed to add to pending: {payload['name']}")
+                    logger.warning(
+                        "⚠️  Failed to add to pending: %s (device %s)",
+                        payload['name'],
+                        payload.get('deviceId'),
+                    )
 
             # Log loop timing
             loop_time = time.time() - loop_start
