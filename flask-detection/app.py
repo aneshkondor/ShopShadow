@@ -13,8 +13,14 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 # Import shared logger from Task 1.6
 from shared.logger import logger
 
+# Import backend client for API communication (Task 3.5)
+from api.backend_client import BackendClient
+
 # Create Flask app
 app = Flask(__name__)
+
+# Backend client instance (initialized on startup)
+backend_client = None
 
 # Configure CORS for backend communication
 backend_url = os.getenv('BACKEND_API_URL', 'http://localhost:3000')
@@ -86,6 +92,46 @@ try:
 except Exception as e:
     logger.error(f"Failed to load configuration: {str(e)}")
     CONFIG = None
+
+
+def init_backend_client():
+    """
+    Initialize and register backend client
+
+    Called by Task 3.6 (main loop) on startup before detection begins.
+    Performs health check and device registration.
+
+    Returns:
+        BackendClient: Initialized and registered backend client
+
+    Raises:
+        SystemExit: If device registration fails (cannot operate without it)
+    """
+    global backend_client
+
+    backend_url = CONFIG['BACKEND_API_URL']
+    backend_client = BackendClient(backend_url)
+
+    # Check backend health
+    if not backend_client.checkHealth():
+        logger.warning("Backend health check failed, but continuing anyway")
+
+    # Register device
+    try:
+        device_id = backend_client.registerDevice()
+        logger.info(f"✅ Device registered: {device_id} (pairing code: {backend_client.device_code})")
+        logger.info(f"User can pair this device in the frontend using code: {backend_client.device_code}")
+    except RuntimeError as e:
+        logger.error(f"Failed to register device: {e}")
+        logger.error("Cannot operate without device registration. Exiting.")
+        sys.exit(1)
+
+    return backend_client
+
+
+# Export app, config, and backend client initialization function
+__all__ = ['app', 'CONFIG', 'backend_client', 'init_backend_client']
+
 
 if __name__ == '__main__':
     host = os.getenv('FLASK_HOST', '0.0.0.0')
