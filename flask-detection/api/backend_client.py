@@ -62,8 +62,9 @@ class BackendClient:
                 response.raise_for_status()
 
                 data = response.json()
-                self.device_id = data.get('deviceId')
-                self.device_code = data.get('code')
+                device_data = data.get('data', {})                                                                                                                                                           
+                self.device_id = device_data.get('deviceId')
+                self.device_code = device_data.get('code')
 
                 if not self.device_id:
                     logger.error(f"Registration response missing deviceId: {data}")
@@ -152,7 +153,7 @@ class BackendClient:
         payload = {
             "productId": product_id,
             "quantity": quantity,
-            "confidence": confidence,
+            "confidence": round(confidence, 4),
             "deviceId": self.device_id
         }
 
@@ -198,16 +199,19 @@ class BackendClient:
 
             except requests.exceptions.HTTPError as e:
                 status_code = e.response.status_code if e.response else None
+                response_text = e.response.text if e.response else 'No response text'
 
                 if status_code and 400 <= status_code < 500:
                     # Client error (invalid data), don't retry
                     logger.error(f"Basket API client error (status {status_code}): {str(e)}")
+                    logger.error(f"Server Response: {response_text}")
                     logger.error(f"Payload: {payload}")
                     self._record_failure()
                     return False
                 elif status_code and 500 <= status_code < 600:
                     # Server error, retry
                     logger.error(f"Basket API server error (status {status_code}): {str(e)}")
+                    logger.error(f"Server Response: {response_text}")
                     if attempt_num < max_retries:
                         logger.info(f"Retrying basket API call (attempt {attempt_num + 2}/{max_retries + 1})...")
                         time.sleep(1)
@@ -217,6 +221,7 @@ class BackendClient:
                         return False
                 else:
                     logger.error(f"Basket API HTTP error: {str(e)}")
+                    logger.error(f"Server Response: {response_text}")
                     self._record_failure()
                     return False
 
@@ -354,7 +359,7 @@ class BackendClient:
             response.raise_for_status()
 
             data = response.json()
-            if data.get('status') == 'ok':
+            if data.get('success') is True:
                 logger.info("✅ Backend health check passed")
                 return True
             else:
