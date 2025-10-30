@@ -200,4 +200,4 @@ date: 2025-10-30
 - Operator experience should improve thanks to clearer logging and consistent payload schemas.
 - Next phase (Phase 4) can explore advanced scheduling or async backend dispatch without revisiting baseline plumbing.
 ## Final Git Commit Hash
-- Pending Phase 3 tidy-up commit: FINAL_COMMIT_HASH_TBD
+- Phase 3 tidy-up commit: `e7ac586f697fa6a618838164906ee22390695c9e`

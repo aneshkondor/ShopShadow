@@ -211,4 +211,4 @@ flask-detection/tests/test_detection.py .....                            [100%]
 - Evaluate opportunities to parameterize detection floor via environment variable for remote tuning.
 - Confirm risk and follow-up sections provide actionable insights for Phase 4 planning.
 ## Final Git Commit Hash
-- Pending Phase 3 tidy-up commit: FINAL_COMMIT_HASH_TBD
+- Phase 3 tidy-up commit: `e7ac586f697fa6a618838164906ee22390695c9e`
