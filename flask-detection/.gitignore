@@ -16,9 +16,11 @@ __pycache__/
 logs/
 *.log
 
-# YOLO models (large files, auto-download)
-models/
+# YOLO model weights (large files, auto-download)
+# Allow Python source files in models/ but exclude .pt weights
 *.pt
+models/*.pt
+models/yolo*.pt
 
 # Test outputs
 tests/test_frame.jpg

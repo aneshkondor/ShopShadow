@@ -1,0 +1,68 @@
+{
+  "44": {
+    "coco_name": "bottle",
+    "product_id": "P009",
+    "product_name": "Water Bottle",
+    "price": 2.49
+  },
+  "46": {
+    "coco_name": "banana",
+    "product_id": "P002",
+    "product_name": "Fresh Bananas",
+    "price": 0.99
+  },
+  "47": {
+    "coco_name": "apple",
+    "product_id": "P001",
+    "product_name": "Organic Apples",
+    "price": 1.99
+  },
+  "48": {
+    "coco_name": "sandwich",
+    "product_id": "P020",
+    "product_name": "Premium Sandwich",
+    "price": 6.49
+  },
+  "49": {
+    "coco_name": "orange",
+    "product_id": "P003",
+    "product_name": "Fresh Oranges",
+    "price": 1.49
+  },
+  "50": {
+    "coco_name": "broccoli",
+    "product_id": "P006",
+    "product_name": "Broccoli Crown",
+    "price": 2.29
+  },
+  "51": {
+    "coco_name": "carrot",
+    "product_id": "P005",
+    "product_name": "Fresh Carrots",
+    "price": 1.49
+  },
+  "52": {
+    "coco_name": "hot dog",
+    "product_id": "P019",
+    "product_name": "Hot Dog Pack",
+    "price": 4.99
+  },
+  "53": {
+    "coco_name": "pizza",
+    "product_id": "P017",
+    "product_name": "Pepperoni Pizza",
+    "price": 8.99
+  },
+  "54": {
+    "coco_name": "donut",
+    "product_id": "P013",
+    "product_name": "Chocolate Donut",
+    "price": 1.79
+  },
+  "55": {
+    "coco_name": "cake",
+    "product_id": "P015",
+    "product_name": "Birthday Cake",
+    "price": 15.99
+  }
+}

@@ -72,6 +72,11 @@ def get_config():
     if missing:
         raise EnvironmentError(f"Missing required environment variables: {', '.join(missing)}")
 
+    # Add optional YOLO configuration with defaults
+    config['YOLO_DEVICE'] = os.getenv('YOLO_DEVICE', 'auto')
+    config['YOLO_IOU_THRESHOLD'] = float(os.getenv('YOLO_IOU_THRESHOLD', '0.45'))
+    config['YOLO_MAX_DETECTIONS'] = int(os.getenv('YOLO_MAX_DETECTIONS', '300'))
+
     return config
 
 # Export config for other modules
