@@ -253,7 +253,7 @@
 - Accessibility notes provide to-do list for inclusive design improvements.
 
 ## Git Commit Reference
-- Commit hash: **37177b5**.
+- Commit hash: **63910d5** (feature commit).
 - Commit message template prepared per task instructions.
 - Files staged will include backend route, API utilities, admin overview, and memory log.
 - Commit will encapsulate Task 4.5 scope without unrelated changes.
