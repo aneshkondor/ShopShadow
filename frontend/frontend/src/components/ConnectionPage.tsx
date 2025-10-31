@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { GlassCard } from './GlassCard';
 import { GlassButton } from './GlassButton';
-import { InputOTP, InputOTPGroup, InputOTPSlot } from './ui/input-otp';
+import { Input } from './ui/input';
 import { Wifi, LogOut } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { connectDevice, storeDevice, type Device } from '../utils/api';
@@ -26,6 +26,21 @@ export function ConnectionPage({ onConnect, onLogout, isDemo = false, authToken,
       handleConnect();
     }
   }, [code]);
+
+  const handleCodeChange = (value: string) => {
+    const sanitized = value.replace(/\D/g, '').slice(0, 4);
+    setCode(sanitized);
+
+    if (error) {
+      setError(null);
+    }
+  };
+
+  const handleCodePaste = (event: React.ClipboardEvent<HTMLInputElement>) => {
+    event.preventDefault();
+    const pasted = event.clipboardData.getData('text');
+    handleCodeChange(pasted);
+  };
 
   const handleConnect = async () => {
     if (code.length !== 4) {
@@ -154,22 +169,24 @@ export function ConnectionPage({ onConnect, onLogout, isDemo = false, authToken,
               <div className="space-y-4">
                 <div className="space-y-3">
                   <div className="flex justify-center">
-                    <InputOTP
-                      maxLength={4}
+                    <Input
                       value={code}
-                      onChange={(value) => {
-                        setCode(value);
-                        setError(null);
+                      onChange={(event) => handleCodeChange(event.target.value)}
+                      onPaste={handleCodePaste}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault();
+                          handleConnect();
+                        }
                       }}
+                      inputMode="numeric"
+                      pattern="\d*"
+                      maxLength={4}
+                      autoFocus
                       disabled={isConnecting}
-                    >
-                      <InputOTPGroup>
-                        <InputOTPSlot index={0} />
-                        <InputOTPSlot index={1} />
-                        <InputOTPSlot index={2} />
-                        <InputOTPSlot index={3} />
-                      </InputOTPGroup>
-                    </InputOTP>
+                      placeholder="0000"
+                      className="w-44 text-center text-2xl tracking-[0.6em] font-semibold bg-white/70 border-slate-300/60 text-slate-900 placeholder:text-slate-400"
+                    />
                   </div>
 
                   {error && (
@@ -191,6 +208,15 @@ export function ConnectionPage({ onConnect, onLogout, isDemo = false, authToken,
                   )}
                 </div>
               </div>
+
+              <GlassButton
+                variant="primary"
+                className="w-full text-white"
+                disabled={code.length !== 4 || isConnecting}
+                onClick={handleConnect}
+              >
+                {isConnecting ? 'Connecting…' : 'Connect Device'}
+              </GlassButton>
 
               <div className="pt-4 border-t border-slate-300/50">
                 <p className="text-slate-600 text-sm text-center">

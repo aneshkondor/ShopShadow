@@ -37,9 +37,10 @@ export function SignupPage({ onSignup, onBack, onSwitchToLogin }: SignupPageProp
       return;
     }
 
-    // Validate password length
-    if (password.length < 4) {
-      toast.error('Password must be at least 4 characters', {
+    // Validate password strength (align with backend)
+    const strongPassword = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+    if (!strongPassword.test(password)) {
+      toast.error('Password must be at least 8 characters with upper & lower case letters and a number', {
         duration: 3000,
         position: 'bottom-right',
         style: {
@@ -123,8 +124,12 @@ export function SignupPage({ onSignup, onBack, onSwitchToLogin }: SignupPageProp
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
+                    minLength={8}
                     className="bg-white/50 border-slate-300/50 text-slate-900 placeholder:text-slate-400"
                   />
+                  <p className="text-xs text-slate-500">
+                    Must include at least 8 characters, 1 uppercase letter, 1 lowercase letter, and 1 number.
+                  </p>
                 </div>
 
                 <div className="space-y-2">
