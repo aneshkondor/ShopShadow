@@ -197,7 +197,7 @@ GET /api/basket/:userId/pending-items  (Dashboard polling)
 5. Device disconnect still clears basket; pending queue is cleared server-side upon user switch.
 
 ## Commit Metadata
-- Implementation commit: `751c9aff3b90933a4413c5d37fbd51d78b4c5c18`
+- Implementation commit: `663ade2d12e58d2e17bfccd4571cbe128f6ea22f`
 - Related prerequisite fixes: `a26c168031f0caeb9b280b031dea87cb3e3b4f12` (connection/signup hardening)
 - Memory log recorded in same commit for traceability.
 
