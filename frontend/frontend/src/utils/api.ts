@@ -313,6 +313,21 @@ export interface BasketResponse {
 }
 
 /**
+ * PendingItem represents a low-confidence detection awaiting user approval
+ */
+export interface PendingItem {
+  id: string;
+  user_id: string;
+  device_id: string;
+  product_id: string;
+  name: string;
+  quantity: number;
+  confidence: number;
+  status: 'pending' | 'approved' | 'declined';
+  timestamp: string;
+}
+
+/**
  * Fetch the user's basket from the backend
  *
  * @param userId - The user's unique identifier
@@ -362,6 +377,91 @@ export async function removeBasketItem(itemId: string, token: string): Promise<v
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Unknown error' }));
     throw new Error(error.error || `Failed to remove item: ${response.status}`);
+  }
+}
+
+/**
+ * Fetch pending items awaiting approval for a user
+ */
+export async function fetchPendingItems(
+  userId: string,
+  token: string,
+  signal?: AbortSignal
+): Promise<PendingItem[]> {
+  try {
+    const response = await fetch(`${API_BASE}/api/basket/${userId}/pending-items`, {
+      method: 'GET',
+      headers: getAuthHeaders(token),
+      signal
+    });
+
+    const data = await response.json().catch(() => ({ pendingItems: [] }));
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to fetch pending items');
+    }
+
+    const pendingItems = Array.isArray(data.pendingItems) ? data.pendingItems : [];
+
+    return pendingItems.map((item: any): PendingItem => ({
+      id: item.id,
+      user_id: item.user_id,
+      device_id: item.device_id,
+      product_id: item.product_id,
+      name: item.name,
+      quantity: Number(item.quantity ?? 1),
+      confidence: Number(item.confidence ?? 0),
+      status: (item.status ?? 'pending') as PendingItem['status'],
+      timestamp: item.timestamp ?? new Date().toISOString()
+    }));
+  } catch (error) {
+    throw new Error(handleApiError(error));
+  }
+}
+
+/**
+ * Approve a pending item and receive updated basket state
+ */
+export async function approvePendingItem(
+  itemId: string,
+  quantity: number,
+  token: string
+): Promise<BasketResponse> {
+  try {
+    const response = await fetch(`${API_BASE}/api/basket/pending-items/${itemId}/approve`, {
+      method: 'POST',
+      headers: getAuthHeaders(token),
+      body: JSON.stringify({ quantity })
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to approve pending item');
+    }
+
+    return data as BasketResponse;
+  } catch (error) {
+    throw new Error(handleApiError(error));
+  }
+}
+
+/**
+ * Decline a pending item
+ */
+export async function declinePendingItem(itemId: string, token: string): Promise<void> {
+  try {
+    const response = await fetch(`${API_BASE}/api/basket/pending-items/${itemId}/decline`, {
+      method: 'POST',
+      headers: getAuthHeaders(token)
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({ error: 'Failed to decline item' }));
+      throw new Error(data.error || 'Failed to decline pending item');
+    }
+  } catch (error) {
+    throw new Error(handleApiError(error));
   }
 }
 

@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { GlassCard } from './GlassCard';
 import { GlassButton } from './GlassButton';
 import { ConnectionStatus } from './ConnectionStatus';
+import { PendingItemsCard, type PendingItem } from './PendingItemsCard';
 import { EmptyState } from './EmptyState';
 import { ShoppingBasket, LogOut, Trash2, History, Tag, Unplug } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
@@ -18,8 +19,10 @@ import {
 import {
   fetchBasket,
   removeBasketItem,
+  fetchPendingItems,
+  approvePendingItem,
+  declinePendingItem,
   type BasketItem as APIBasketItem,
-  getUser,
   getAuthToken,
   getDeviceStatus,
   disconnectDevice,
@@ -54,6 +57,8 @@ export function Dashboard({ onLogout, onCheckout, onViewOrders, onViewProducts, 
   const [itemCount, setItemCount] = useState(0);
   const [pollingError, setPollingError] = useState<string | null>(null);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
+  const [pendingItems, setPendingItems] = useState<PendingItem[]>([]);
+  const [isLoadingPending, setIsLoadingPending] = useState(true);
 
   // Fallback for demo mode
   const effectiveAuthToken = authToken || 'demo-token';
@@ -61,6 +66,15 @@ export function Dashboard({ onLogout, onCheckout, onViewOrders, onViewProducts, 
 
   // AbortController ref to cancel previous fetch when new one starts
   const abortControllerRef = useRef<AbortController | null>(null);
+  const pendingAbortControllerRef = useRef<AbortController | null>(null);
+
+  const mapApiBasketItems = (apiItems: APIBasketItem[]): BasketItem[] =>
+    apiItems.map(item => ({
+      id: item.id,
+      name: item.name,
+      quantity: item.quantity,
+      price: item.price
+    }));
 
   // Poll device status
   useEffect(() => {
@@ -128,16 +142,13 @@ export function Dashboard({ onLogout, onCheckout, onViewOrders, onViewProducts, 
         // Only update state if component is still mounted and fetch wasn't aborted
         if (isMounted && !abortController.signal.aborted) {
           // Convert API basket items to component basket items
-          const convertedItems: BasketItem[] = basketResponse.data.items.map(item => ({
-            id: item.id,
-            name: item.name,
-            quantity: item.quantity,
-            price: item.price
-          }));
+          const rawItems = Array.isArray(basketResponse.data.items) ? basketResponse.data.items : [];
+          const nextItems = mapApiBasketItems(rawItems);
+          const nextItemCount = rawItems.reduce((sum, entry) => sum + entry.quantity, 0);
 
-          setItems(convertedItems);
-          setBasketTotal(basketResponse.data.total);
-          setItemCount(basketResponse.data.itemCount);
+          setItems(nextItems);
+          setBasketTotal(Number(basketResponse.data.total ?? 0));
+          setItemCount(nextItemCount);
           setIsLoadingBasket(false);
           setPollingError(null);
         }
@@ -174,6 +185,80 @@ export function Dashboard({ onLogout, onCheckout, onViewOrders, onViewProducts, 
       }
     };
   }, [effectiveUserId, effectiveAuthToken, isLoadingBasket]);
+
+  // Poll pending items every 5 seconds
+  useEffect(() => {
+    if (isDemo) {
+      setPendingItems([]);
+      setIsLoadingPending(false);
+      if (pendingAbortControllerRef.current) {
+        pendingAbortControllerRef.current.abort();
+      }
+      return;
+    }
+
+    if (!effectiveUserId || !effectiveAuthToken) {
+      setPendingItems([]);
+      setIsLoadingPending(false);
+      if (pendingAbortControllerRef.current) {
+        pendingAbortControllerRef.current.abort();
+      }
+      return;
+    }
+
+    let isMounted = true;
+
+    const loadPendingItems = async (initialLoad = false) => {
+      if (pendingAbortControllerRef.current) {
+        pendingAbortControllerRef.current.abort();
+      }
+
+      const controller = new AbortController();
+      pendingAbortControllerRef.current = controller;
+
+      if (initialLoad) {
+        setIsLoadingPending(true);
+      }
+
+      try {
+        const pending = await fetchPendingItems(
+          effectiveUserId,
+          effectiveAuthToken,
+          controller.signal
+        );
+
+        if (isMounted && !controller.signal.aborted) {
+          setPendingItems(pending);
+        }
+      } catch (error: any) {
+        if (controller.signal.aborted || !isMounted) {
+          return;
+        }
+        console.error('Failed to fetch pending items:', error);
+        if (initialLoad) {
+          toast.error('Failed to load pending approvals', {
+            duration: 3000,
+            position: 'bottom-right',
+          });
+        }
+      } finally {
+        if (isMounted && initialLoad) {
+          setIsLoadingPending(false);
+        }
+      }
+    };
+
+    loadPendingItems(true);
+    const intervalId = setInterval(() => loadPendingItems(false), 5000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(intervalId);
+      if (pendingAbortControllerRef.current) {
+        pendingAbortControllerRef.current.abort();
+      }
+    };
+  }, [effectiveAuthToken, effectiveUserId, isDemo]);
 
   // Disconnect device
   const handleDisconnect = async () => {
@@ -240,6 +325,46 @@ export function Dashboard({ onLogout, onCheckout, onViewOrders, onViewProducts, 
         duration: 3000,
         position: 'bottom-right',
       });
+    }
+  };
+
+  const handleApprovePending = async (itemId: string, quantity: number) => {
+    if (!authToken) {
+      throw new Error('Authentication required to approve items');
+    }
+
+    try {
+      const response = await approvePendingItem(itemId, quantity, authToken);
+
+      setPendingItems(prev => prev.filter(item => item.id !== itemId));
+
+      if (response?.data) {
+        const rawItems = Array.isArray(response.data.items) ? response.data.items : [];
+        const nextItems = mapApiBasketItems(rawItems);
+        const nextItemCount = rawItems.reduce((sum, entry) => sum + entry.quantity, 0);
+
+        setItems(nextItems);
+        setBasketTotal(Number(response.data.total ?? 0));
+        setItemCount(nextItemCount);
+        setIsLoadingBasket(false);
+      }
+    } catch (error) {
+      console.error('Failed to approve pending item:', error);
+      throw error;
+    }
+  };
+
+  const handleDeclinePending = async (itemId: string) => {
+    if (!authToken) {
+      throw new Error('Authentication required to decline items');
+    }
+
+    try {
+      await declinePendingItem(itemId, authToken);
+      setPendingItems(prev => prev.filter(item => item.id !== itemId));
+    } catch (error) {
+      console.error('Failed to decline pending item:', error);
+      throw error;
     }
   };
 
@@ -393,62 +518,78 @@ export function Dashboard({ onLogout, onCheckout, onViewOrders, onViewProducts, 
 
       {/* Main Content */}
       <main className="px-6">
-        {isLoadingBasket ? (
-          <div className="space-y-3">
-            {[1, 2, 3].map(i => (
-              <div key={i} className="h-20 bg-slate-200/50 animate-pulse rounded-lg" />
-            ))}
-          </div>
-        ) : items.length === 0 ? (
-          <EmptyState />
-        ) : (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="space-y-3"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-slate-900">Your Basket</h2>
-              <span className="text-slate-600">{totalItems} items</span>
-            </div>
+        <div className="space-y-6">
+          {!isDemo && pendingItems.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <PendingItemsCard
+                items={pendingItems}
+                onApprove={handleApprovePending}
+                onDecline={handleDeclinePending}
+                isLoading={isLoadingPending}
+              />
+            </motion.div>
+          )}
 
-            <AnimatePresence mode="popLayout">
-              {items.map((item) => (
-                <motion.div
-                  key={item.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, x: -100 }}
-                  transition={{ duration: 0.3 }}
-                >
-                  <GlassCard hover className="p-4">
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="flex-1 min-w-0">
-                        <h3 className="text-slate-900 truncate">{item.name}</h3>
-                        <div className="flex items-center gap-3 mt-1">
-                          <span className="text-slate-600 text-sm">Qty: {item.quantity}</span>
-                          <span className="text-slate-400">•</span>
-                          <span className="text-slate-600 text-sm">${item.price.toFixed(2)} each</span>
+          {isLoadingBasket ? (
+            <div className="space-y-3">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="h-20 bg-slate-200/50 animate-pulse rounded-lg" />
+              ))}
+            </div>
+          ) : items.length === 0 ? (
+            <EmptyState />
+          ) : (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="space-y-3"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-slate-900">Your Basket</h2>
+                <span className="text-slate-600">{totalItems} items</span>
+              </div>
+
+              <AnimatePresence mode="popLayout">
+                {items.map((item) => (
+                  <motion.div
+                    key={item.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, x: -100 }}
+                    transition={{ duration: 0.3 }}
+                  >
+                    <GlassCard hover className="p-4">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-slate-900 truncate">{item.name}</h3>
+                          <div className="flex items-center gap-3 mt-1">
+                            <span className="text-slate-600 text-sm">Qty: {item.quantity}</span>
+                            <span className="text-slate-400">•</span>
+                            <span className="text-slate-600 text-sm">${item.price.toFixed(2)} each</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="text-slate-900">${(item.price * item.quantity).toFixed(2)}</span>
+                          {/* TODO: Remove in production - items should only update via Raspberry Pi detection */}
+                          <button
+                            onClick={() => handleRemoveItem(item.id)}
+                            className="text-slate-400 hover:text-rose-500 transition-colors p-2"
+                            title="Demo only - not available in production"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-slate-900">${(item.price * item.quantity).toFixed(2)}</span>
-                        {/* TODO: Remove in production - items should only update via Raspberry Pi detection */}
-                        <button
-                          onClick={() => handleRemoveItem(item.id)}
-                          className="text-slate-400 hover:text-rose-500 transition-colors p-2"
-                          title="Demo only - not available in production"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  </GlassCard>
-                </motion.div>
-              ))}
-            </AnimatePresence>
-          </motion.div>
-        )}
+                    </GlassCard>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            </motion.div>
+          )}
+        </div>
       </main>
 
       {/* Bottom Bar with Total and Checkout */}

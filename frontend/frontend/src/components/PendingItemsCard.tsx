@@ -4,17 +4,9 @@ import { GlassCard } from './GlassCard';
 import { GlassButton } from './GlassButton';
 import { AlertCircle, Plus, Minus, Loader2 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
+import type { PendingItem as PendingItemModel } from '../utils/api';
 
-export interface PendingItem {
-  id: string;
-  product_id: string;
-  name: string;
-  quantity: number;
-  confidence: number;
-  timestamp: string;
-  device_id: string;
-  status: 'pending' | 'approved' | 'declined';
-}
+export type PendingItem = PendingItemModel;
 
 export interface PendingItemsCardProps {
   items: PendingItem[];
