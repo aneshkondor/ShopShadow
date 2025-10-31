@@ -1,11 +1,31 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GlassCard } from './GlassCard';
 import { GlassButton } from './GlassButton';
 import { ConnectionStatus } from './ConnectionStatus';
 import { EmptyState } from './EmptyState';
-import { ShoppingBasket, LogOut, Trash2, History, Tag } from 'lucide-react';
+import { ShoppingBasket, LogOut, Trash2, History, Tag, Unplug } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from './ui/alert-dialog';
+import {
+  fetchBasket,
+  removeBasketItem,
+  type BasketItem as APIBasketItem,
+  getUser,
+  getAuthToken,
+  getDeviceStatus,
+  disconnectDevice,
+  clearDevice,
+  type Device
+} from '../utils/api';
 
 interface BasketItem {
   id: string;
@@ -20,43 +40,211 @@ interface DashboardProps {
   onViewOrders: () => void;
   onViewProducts: () => void;
   isDemo?: boolean;
+  authToken: string | null;
+  userId: string | null;
+  connectedDevice: Device | null;
 }
 
-// Mock items with prices - this will come from backend later
-const mockItems: BasketItem[] = [
-  { id: '1', name: 'Organic Apples', quantity: 3, price: 1.99 },
-  { id: '2', name: 'Fresh Milk (1L)', quantity: 1, price: 3.49 },
-  { id: '3', name: 'Whole Wheat Bread', quantity: 2, price: 2.99 },
-  { id: '4', name: 'Free Range Eggs', quantity: 1, price: 4.99 },
-];
+export function Dashboard({ onLogout, onCheckout, onViewOrders, onViewProducts, isDemo = false, authToken, userId, connectedDevice }: DashboardProps) {
+  const [items, setItems] = useState<BasketItem[]>([]);
+  const [device, setDevice] = useState<Device | null>(connectedDevice);
+  const [isConnected, setIsConnected] = useState(false);
+  const [isLoadingBasket, setIsLoadingBasket] = useState(true);
+  const [basketTotal, setBasketTotal] = useState(0);
+  const [itemCount, setItemCount] = useState(0);
+  const [pollingError, setPollingError] = useState<string | null>(null);
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
 
-export function Dashboard({ onLogout, onCheckout, onViewOrders, onViewProducts, isDemo = false }: DashboardProps) {
-  const [items, setItems] = useState<BasketItem[]>(mockItems);
-  const [isConnected] = useState(true);
+  // Fallback for demo mode
+  const effectiveAuthToken = authToken || 'demo-token';
+  const effectiveUserId = userId || 'demo-user-id';
 
-  // TODO: SECURITY - Remove this manual delete function in production
-  // Items should ONLY be removed when Raspberry Pi detects physical removal from basket
-  // Manual deletion allows users to checkout without paying for items still in physical basket
-  const handleRemoveItem = (id: string) => {
-    setItems(items.filter(item => item.id !== id));
-    toast.success('Item removed from basket', {
-      duration: 2000,
-      position: 'bottom-right',
-      style: {
-        background: 'rgba(255, 255, 255, 0.95)',
-        backdropFilter: 'blur(20px)',
-        border: '1px solid rgba(148, 163, 184, 0.3)',
-        color: '#1e293b',
-      },
-    });
+  // AbortController ref to cancel previous fetch when new one starts
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Poll device status
+  useEffect(() => {
+    if (isDemo) {
+      setIsConnected(true);
+      return;
+    }
+
+    if (!device?.id || !effectiveAuthToken) {
+      setIsConnected(false);
+      return;
+    }
+
+    const checkDeviceStatus = async () => {
+      try {
+        const deviceData = await getDeviceStatus(device.id, effectiveAuthToken);
+        setDevice(deviceData);
+
+        if (!deviceData) {
+          setIsConnected(false);
+          return;
+        }
+
+        const lastHeartbeat = new Date(deviceData.lastHeartbeat || 0).getTime();
+        const secondsSinceHeartbeat = (Date.now() - lastHeartbeat) / 1000;
+
+        setIsConnected(
+          deviceData.status === 'connected' && secondsSinceHeartbeat < 60
+        );
+      } catch (error) {
+        console.error('Failed to check device status:', error);
+        setIsConnected(false);
+      }
+    };
+
+    checkDeviceStatus();
+    const interval = setInterval(checkDeviceStatus, 10000);
+
+    return () => clearInterval(interval);
+  }, [device?.id, effectiveAuthToken, isDemo]);
+
+  // Polling logic: Fetch basket every 5 seconds
+  useEffect(() => {
+    if (!effectiveUserId || !effectiveAuthToken) {
+      console.warn('No user ID or auth token available');
+      setIsLoadingBasket(false);
+      return;
+    }
+
+    let isMounted = true;
+
+    const fetchBasketData = async () => {
+      // Cancel previous fetch if still running
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+
+      // Create new abort controller for this fetch
+      const abortController = new AbortController();
+      abortControllerRef.current = abortController;
+
+      try {
+        const basketResponse = await fetchBasket(effectiveUserId, effectiveAuthToken);
+
+        // Only update state if component is still mounted and fetch wasn't aborted
+        if (isMounted && !abortController.signal.aborted) {
+          // Convert API basket items to component basket items
+          const convertedItems: BasketItem[] = basketResponse.data.items.map(item => ({
+            id: item.id,
+            name: item.name,
+            quantity: item.quantity,
+            price: item.price
+          }));
+
+          setItems(convertedItems);
+          setBasketTotal(basketResponse.data.total);
+          setItemCount(basketResponse.data.itemCount);
+          setIsLoadingBasket(false);
+          setPollingError(null);
+        }
+      } catch (error: any) {
+        // Only show error on initial load, not on polling failures
+        if (isMounted && !abortController.signal.aborted) {
+          console.error('Failed to fetch basket:', error);
+          setPollingError(error.message);
+
+          // Only show toast on initial load failure
+          if (isLoadingBasket) {
+            toast.error('Failed to load basket', {
+              duration: 3000,
+              position: 'bottom-right',
+            });
+          }
+          setIsLoadingBasket(false);
+        }
+      }
+    };
+
+    // Initial fetch
+    fetchBasketData();
+
+    // Poll every 5 seconds (matches Flask detection interval)
+    const intervalId = setInterval(fetchBasketData, 5000);
+
+    // Cleanup
+    return () => {
+      isMounted = false;
+      clearInterval(intervalId);
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, [effectiveUserId, effectiveAuthToken, isLoadingBasket]);
+
+  // Disconnect device
+  const handleDisconnect = async () => {
+    if (!device || !effectiveAuthToken) return;
+
+    setIsDisconnecting(true);
+
+    try {
+      await disconnectDevice(device.id, effectiveAuthToken);
+      clearDevice();
+      setDevice(null);
+      setIsConnected(false);
+      setItems([]); // Clear basket items
+
+      toast.success('Device disconnected', {
+        duration: 3000,
+        position: 'bottom-right',
+        style: {
+          background: 'rgba(255, 255, 255, 0.95)',
+          backdropFilter: 'blur(20px)',
+          border: '1px solid rgba(52, 211, 153, 0.3)',
+          color: '#1e293b',
+        },
+        description: 'Your basket has been cleared',
+      });
+    } catch (error: any) {
+      toast.error('Failed to disconnect device', {
+        duration: 3000,
+        position: 'bottom-right',
+        style: {
+          background: 'rgba(255, 255, 255, 0.95)',
+          backdropFilter: 'blur(20px)',
+          border: '1px solid rgba(248, 113, 113, 0.3)',
+          color: '#1e293b',
+        },
+        description: error.message,
+      });
+    } finally {
+      setIsDisconnecting(false);
+    }
   };
 
-  const calculateTotal = () => {
-    return items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  // Handle item removal via API
+  const handleRemoveItem = async (id: string) => {
+    try {
+      await removeBasketItem(id, effectiveAuthToken);
+
+      // Optimistically update UI
+      setItems(items.filter(item => item.id !== id));
+
+      toast.success('Item removed from basket', {
+        duration: 2000,
+        position: 'bottom-right',
+        style: {
+          background: 'rgba(255, 255, 255, 0.95)',
+          backdropFilter: 'blur(20px)',
+          border: '1px solid rgba(148, 163, 184, 0.3)',
+          color: '#1e293b',
+        },
+      });
+    } catch (error: any) {
+      console.error('Failed to remove item:', error);
+      toast.error('Failed to remove item. Please try again.', {
+        duration: 3000,
+        position: 'bottom-right',
+      });
+    }
   };
 
-  const totalItems = items.reduce((sum, item) => sum + item.quantity, 0);
-  const totalCost = calculateTotal();
+  const totalItems = itemCount;
+  const totalCost = basketTotal;
 
   return (
     <div className="min-h-screen pb-32">
@@ -78,7 +266,39 @@ export function Dashboard({ onLogout, onCheckout, onViewOrders, onViewProducts, 
               </div>
             </div>
             <div className="hidden sm:flex items-center gap-3">
-              <ConnectionStatus isConnected={isConnected} />
+              <ConnectionStatus
+                deviceId={device?.id || null}
+                authToken={effectiveAuthToken}
+                isDemo={isDemo}
+              />
+              {!isDemo && device && (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <button
+                      className="text-slate-600 hover:text-rose-600 transition-colors p-2"
+                      title="Disconnect Device"
+                      disabled={isDisconnecting}
+                    >
+                      <Unplug className="w-5 h-5" />
+                    </button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent className="bg-white/95 backdrop-blur-md">
+                    <AlertDialogTitle>Disconnect Device?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Your basket items will be cleared, but new detections will stop. You can reconnect anytime.
+                    </AlertDialogDescription>
+                    <div className="flex gap-2 justify-end mt-4">
+                      <AlertDialogCancel className="bg-white/50">Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={handleDisconnect}
+                        className="bg-rose-500 text-white hover:bg-rose-600"
+                      >
+                        Disconnect
+                      </AlertDialogAction>
+                    </div>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
               <button
                 onClick={onViewProducts}
                 className="text-slate-600 hover:text-slate-800 transition-colors p-2"
@@ -103,12 +323,44 @@ export function Dashboard({ onLogout, onCheckout, onViewOrders, onViewProducts, 
               </button>
             </div>
             <div className="sm:hidden">
-              <ConnectionStatus isConnected={isConnected} />
+              <ConnectionStatus
+                deviceId={device?.id || null}
+                authToken={effectiveAuthToken}
+                isDemo={isDemo}
+              />
             </div>
           </div>
           
           {/* Mobile Navigation Buttons */}
-          <div className="grid grid-cols-3 gap-2 sm:hidden mt-4 pt-4 border-t border-slate-200/50">
+          <div className={`grid ${!isDemo && device ? 'grid-cols-4' : 'grid-cols-3'} gap-2 sm:hidden mt-4 pt-4 border-t border-slate-200/50`}>
+            {!isDemo && device && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <GlassButton
+                    variant="secondary"
+                    className="flex flex-col items-center justify-center py-3 px-2 text-slate-700"
+                  >
+                    <Unplug className="w-5 h-5 mb-1" />
+                    <span className="text-xs">Disconnect</span>
+                  </GlassButton>
+                </AlertDialogTrigger>
+                <AlertDialogContent className="bg-white/95 backdrop-blur-md">
+                  <AlertDialogTitle>Disconnect Device?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Your basket items will be cleared, but new detections will stop. You can reconnect anytime.
+                  </AlertDialogDescription>
+                  <div className="flex gap-2 justify-end mt-4">
+                    <AlertDialogCancel className="bg-white/50">Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={handleDisconnect}
+                      className="bg-rose-500 text-white hover:bg-rose-600"
+                    >
+                      Disconnect
+                    </AlertDialogAction>
+                  </div>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
             <GlassButton
               variant="secondary"
               onClick={onViewProducts}
@@ -141,7 +393,13 @@ export function Dashboard({ onLogout, onCheckout, onViewOrders, onViewProducts, 
 
       {/* Main Content */}
       <main className="px-6">
-        {items.length === 0 ? (
+        {isLoadingBasket ? (
+          <div className="space-y-3">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="h-20 bg-slate-200/50 animate-pulse rounded-lg" />
+            ))}
+          </div>
+        ) : items.length === 0 ? (
           <EmptyState />
         ) : (
           <motion.div

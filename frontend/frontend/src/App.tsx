@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { LandingPage } from './components/LandingPage';
 import { LoginPage } from './components/LoginPage';
 import { SignupPage } from './components/SignupPage';
@@ -13,6 +13,7 @@ import { AdminOrders } from './components/admin/AdminOrders';
 import { AdminProducts } from './components/admin/AdminProducts';
 import { AdminUsers } from './components/admin/AdminUsers';
 import { Toaster, toast } from 'sonner@2.0.3';
+import { login as apiLogin, signup as apiSignup, storeAuthData, getAuthToken, getUser, clearAuthData, type User, type Device } from './utils/api';
 
 type AppScreen = 
   | 'landing' 
@@ -34,7 +35,7 @@ interface BasketItem {
   price: number;
 }
 
-// Hardcoded test credentials
+// Hardcoded test credentials (for demo mode only)
 const TEST_CREDENTIALS = {
   email: 'demo@email.com',
   password: '1234',
@@ -52,45 +53,73 @@ export default function App() {
   const [isDemo, setIsDemo] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [checkoutData, setCheckoutData] = useState<{ items: BasketItem[]; total: number } | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [connectedDevice, setConnectedDevice] = useState<Device | null>(null);
+
+  // Check for existing auth on mount
+  useEffect(() => {
+    const token = getAuthToken();
+    const savedUser = getUser();
+
+    if (token && savedUser) {
+      setAuthToken(token);
+      setUser(savedUser);
+      setIsAdmin(savedUser.role === 'admin');
+
+      // If user was logged in, redirect to appropriate screen
+      if (savedUser.role === 'admin') {
+        setCurrentScreen('admin');
+      } else {
+        setCurrentScreen('connection');
+      }
+    }
+  }, []);
 
   // Handler for login
-  const handleLogin = (email: string, password: string) => {
-    // Check if admin
-    if (email === ADMIN_CREDENTIALS.email && password === ADMIN_CREDENTIALS.password) {
-      toast.success('Admin login successful!', {
-        duration: 2000,
-        position: 'bottom-right',
-        style: {
-          background: 'rgba(255, 255, 255, 0.95)',
-          backdropFilter: 'blur(20px)',
-          border: '1px solid rgba(52, 211, 153, 0.3)',
-          color: '#1e293b',
-        },
-      });
-      setIsAdmin(true);
-      setIsDemo(false);
-      setCurrentScreen('admin');
-      setAdminPage('overview');
-      return;
-    }
+  const handleLogin = async (email: string, password: string) => {
+    try {
+      // Call real login API
+      const response = await apiLogin(email, password);
 
-    // Check against regular user credentials
-    if (email === TEST_CREDENTIALS.email && password === TEST_CREDENTIALS.password) {
-      toast.success('Successfully logged in!', {
-        duration: 2000,
-        position: 'bottom-right',
-        style: {
-          background: 'rgba(255, 255, 255, 0.95)',
-          backdropFilter: 'blur(20px)',
-          border: '1px solid rgba(52, 211, 153, 0.3)',
-          color: '#1e293b',
-        },
-      });
-      setIsDemo(false);
-      setIsAdmin(false);
-      setCurrentScreen('connection');
-    } else {
-      toast.error('Invalid credentials. Try demo@email.com / 1234 or admin@email.com / 1111', {
+      // Store auth data
+      storeAuthData(response.token, response.refreshToken, response.user);
+      setAuthToken(response.token);
+      setUser(response.user);
+
+      // Check if admin
+      if (response.user.role === 'admin') {
+        toast.success('Admin login successful!', {
+          duration: 2000,
+          position: 'bottom-right',
+          style: {
+            background: 'rgba(255, 255, 255, 0.95)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(52, 211, 153, 0.3)',
+            color: '#1e293b',
+          },
+        });
+        setIsAdmin(true);
+        setIsDemo(false);
+        setCurrentScreen('admin');
+        setAdminPage('overview');
+      } else {
+        toast.success('Successfully logged in!', {
+          duration: 2000,
+          position: 'bottom-right',
+          style: {
+            background: 'rgba(255, 255, 255, 0.95)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(52, 211, 153, 0.3)',
+            color: '#1e293b',
+          },
+        });
+        setIsDemo(false);
+        setIsAdmin(false);
+        setCurrentScreen('connection');
+      }
+    } catch (error: any) {
+      toast.error(error.message || 'Login failed. Please try again.', {
         duration: 5000,
         position: 'bottom-right',
         style: {
@@ -104,24 +133,41 @@ export default function App() {
   };
 
   // Handler for signup
-  const handleSignup = (email: string, password: string, name: string) => {
-    // TODO: Integrate with PostgreSQL database to create account
-    console.log('Signup attempt:', { email, password, name });
-    
-    // For now, simulate successful signup and auto-login
-    toast.success('Account created successfully!', {
-      duration: 2000,
-      position: 'bottom-right',
-      style: {
-        background: 'rgba(255, 255, 255, 0.95)',
-        backdropFilter: 'blur(20px)',
-        border: '1px solid rgba(52, 211, 153, 0.3)',
-        color: '#1e293b',
-      },
-    });
-    setIsDemo(false);
-    setIsAdmin(false);
-    setCurrentScreen('connection');
+  const handleSignup = async (email: string, password: string, name: string) => {
+    try {
+      // Call real signup API
+      const response = await apiSignup(name, email, password);
+
+      // Store auth data
+      storeAuthData(response.token, response.refreshToken, response.user);
+      setAuthToken(response.token);
+      setUser(response.user);
+
+      toast.success('Account created successfully!', {
+        duration: 2000,
+        position: 'bottom-right',
+        style: {
+          background: 'rgba(255, 255, 255, 0.95)',
+          backdropFilter: 'blur(20px)',
+          border: '1px solid rgba(52, 211, 153, 0.3)',
+          color: '#1e293b',
+        },
+      });
+      setIsDemo(false);
+      setIsAdmin(false);
+      setCurrentScreen('connection');
+    } catch (error: any) {
+      toast.error(error.message || 'Signup failed. Please try again.', {
+        duration: 5000,
+        position: 'bottom-right',
+        style: {
+          background: 'rgba(255, 255, 255, 0.95)',
+          backdropFilter: 'blur(20px)',
+          border: '1px solid rgba(248, 113, 113, 0.3)',
+          color: '#1e293b',
+        },
+      });
+    }
   };
 
   // Handler for demo mode
@@ -132,12 +178,17 @@ export default function App() {
   };
 
   // Handler for successful connection
-  const handleConnect = () => {
+  const handleConnect = (device: Device) => {
+    setConnectedDevice(device);
     setCurrentScreen('dashboard');
   };
 
   // Handler for logout
   const handleLogout = () => {
+    clearAuthData();
+    setAuthToken(null);
+    setUser(null);
+    setConnectedDevice(null);
     setIsDemo(false);
     setIsAdmin(false);
     setCurrentScreen('landing');
@@ -185,6 +236,8 @@ export default function App() {
           onConnect={handleConnect}
           onLogout={handleLogout}
           isDemo={isDemo}
+          authToken={authToken}
+          userId={user?.id || null}
         />
       )}
 
@@ -195,6 +248,9 @@ export default function App() {
           onViewOrders={() => setCurrentScreen('orders')}
           onViewProducts={() => setCurrentScreen('products')}
           isDemo={isDemo}
+          authToken={authToken}
+          userId={user?.id || null}
+          connectedDevice={connectedDevice}
         />
       )}
 

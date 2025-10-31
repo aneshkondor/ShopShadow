@@ -223,6 +223,26 @@ router.get('/:userId', authenticateToken, async (req, res) => {
   }
 });
 
+// Delete basket item
+router.delete('/items/:itemId', authenticateToken, async (req, res) => {
+  const { itemId } = req.params;
+  try {
+    const result = await pool.query(
+      'DELETE FROM basket_items WHERE id = $1 AND user_id = $2 RETURNING id',
+      [itemId, req.user.id]
+    );
+    if (result.rows.length === 0) {
+      logger.warn('Basket item not found or unauthorized', { itemId, userId: req.user.id });
+      return res.status(404).json({ success: false, error: 'Item not found or unauthorized', code: 'NOT_FOUND' });
+    }
+    logger.info('Basket item deleted', { itemId, userId: req.user.id });
+    return res.json({ success: true, message: 'Item removed from basket' });
+  } catch (error) {
+    logger.error('Failed to delete basket item', { error: error.message, itemId });
+    return res.status(500).json({ success: false, error: 'Failed to remove item from basket', code: 'DATABASE_ERROR' });
+  }
+});
+
 module.exports = router;
 
 

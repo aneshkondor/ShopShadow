@@ -1,46 +1,92 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { GlassCard } from './GlassCard';
 import { GlassButton } from './GlassButton';
-import { Input } from './ui/input';
-import { Label } from './ui/label';
+import { InputOTP, InputOTPGroup, InputOTPSlot } from './ui/input-otp';
 import { Wifi, LogOut } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
+import { connectDevice, storeDevice, type Device } from '../utils/api';
 
 interface ConnectionPageProps {
-  onConnect: () => void;
+  onConnect: (device: Device) => void;
   onLogout: () => void;
   isDemo?: boolean;
+  authToken: string | null;
+  userId: string | null;
 }
 
-export function ConnectionPage({ onConnect, onLogout, isDemo = false }: ConnectionPageProps) {
+export function ConnectionPage({ onConnect, onLogout, isDemo = false, authToken, userId }: ConnectionPageProps) {
   const [code, setCode] = useState('');
   const [isConnecting, setIsConnecting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleConnect = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    // Validate code
-    if (code !== '0000') {
-      toast.error('Invalid connection code. Please try again.', {
-        duration: 3000,
-        position: 'bottom-right',
-        style: {
-          background: 'rgba(255, 255, 255, 0.95)',
-          backdropFilter: 'blur(20px)',
-          border: '1px solid rgba(248, 113, 113, 0.3)',
-          color: '#1e293b',
-        },
-      });
+  // Auto-submit when code is 4 digits
+  useEffect(() => {
+    if (code.length === 4 && !isConnecting) {
+      handleConnect();
+    }
+  }, [code]);
+
+  const handleConnect = async () => {
+    if (code.length !== 4) {
+      setError('Please enter a 4-digit code');
       return;
     }
 
+    // Demo mode - use mock connection
+    if (isDemo || !authToken) {
+      if (code === '0000') {
+        setIsConnecting(true);
+        setTimeout(() => {
+          setIsConnecting(false);
+          toast.success('Demo device connected!', {
+            duration: 3000,
+            position: 'bottom-right',
+            style: {
+              background: 'rgba(255, 255, 255, 0.95)',
+              backdropFilter: 'blur(20px)',
+              border: '1px solid rgba(52, 211, 153, 0.3)',
+              color: '#1e293b',
+            },
+          });
+          // Create mock device for demo
+          const mockDevice: Device = {
+            id: 'demo-device',
+            name: 'Demo Device',
+            status: 'connected',
+            batteryLevel: 100,
+            firmwareVersion: '1.0.0',
+            lastHeartbeat: new Date().toISOString(),
+          };
+          onConnect(mockDevice);
+        }, 1500);
+      } else {
+        setError('Demo code is 0000');
+        toast.error('Invalid code. Use 0000 for demo.', {
+          duration: 3000,
+          position: 'bottom-right',
+          style: {
+            background: 'rgba(255, 255, 255, 0.95)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(248, 113, 113, 0.3)',
+            color: '#1e293b',
+          },
+        });
+      }
+      return;
+    }
+
+    // Real connection with backend API
     setIsConnecting(true);
-    
-    // Simulate connection to Raspberry Pi
-    setTimeout(() => {
-      setIsConnecting(false);
-      toast.success('Successfully connected to basket!', {
+    setError(null);
+
+    try {
+      const device = await connectDevice(code, authToken);
+
+      // Store device in localStorage
+      storeDevice(device);
+
+      toast.success(`Device connected! ID: ${device.id.slice(0, 8)}...`, {
         duration: 3000,
         position: 'bottom-right',
         style: {
@@ -50,8 +96,26 @@ export function ConnectionPage({ onConnect, onLogout, isDemo = false }: Connecti
           color: '#1e293b',
         },
       });
-      onConnect();
-    }, 2000);
+
+      onConnect(device);
+    } catch (error: any) {
+      const errorMessage = error.message || 'Invalid code. Please try again.';
+      setError(errorMessage);
+      setCode(''); // Clear input
+      toast.error('Connection failed', {
+        duration: 3000,
+        position: 'bottom-right',
+        style: {
+          background: 'rgba(255, 255, 255, 0.95)',
+          backdropFilter: 'blur(20px)',
+          border: '1px solid rgba(248, 113, 113, 0.3)',
+          color: '#1e293b',
+        },
+        description: errorMessage,
+      });
+    } finally {
+      setIsConnecting(false);
+    }
   };
 
   return (
@@ -87,35 +151,46 @@ export function ConnectionPage({ onConnect, onLogout, isDemo = false }: Connecti
                 </div>
               </div>
 
-              <form onSubmit={handleConnect} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="code" className="text-slate-700">Connection Code</Label>
-                  <Input
-                    id="code"
-                    type="text"
-                    placeholder="Enter 4-digit code"
-                    value={code}
-                    onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                    required
-                    maxLength={4}
-                    className="bg-white/50 border-slate-300/50 text-slate-900 placeholder:text-slate-400 text-center text-2xl tracking-widest"
-                  />
-                  {isDemo && (
+              <div className="space-y-4">
+                <div className="space-y-3">
+                  <div className="flex justify-center">
+                    <InputOTP
+                      maxLength={4}
+                      value={code}
+                      onChange={(value) => {
+                        setCode(value);
+                        setError(null);
+                      }}
+                      disabled={isConnecting}
+                    >
+                      <InputOTPGroup>
+                        <InputOTPSlot index={0} />
+                        <InputOTPSlot index={1} />
+                        <InputOTPSlot index={2} />
+                        <InputOTPSlot index={3} />
+                      </InputOTPGroup>
+                    </InputOTP>
+                  </div>
+
+                  {error && (
+                    <p className="text-rose-600 text-sm text-center">
+                      {error}
+                    </p>
+                  )}
+
+                  {isDemo && !error && (
                     <p className="text-slate-500 text-xs text-center">
                       Hint: Use code 0000 for demo
                     </p>
                   )}
-                </div>
 
-                <GlassButton 
-                  variant="primary" 
-                  className="w-full text-white"
-                  type="submit"
-                  disabled={isConnecting || code.length !== 4}
-                >
-                  {isConnecting ? 'Connecting...' : 'Connect'}
-                </GlassButton>
-              </form>
+                  {isConnecting && (
+                    <p className="text-slate-600 text-sm text-center">
+                      Connecting to device...
+                    </p>
+                  )}
+                </div>
+              </div>
 
               <div className="pt-4 border-t border-slate-300/50">
                 <p className="text-slate-600 text-sm text-center">
