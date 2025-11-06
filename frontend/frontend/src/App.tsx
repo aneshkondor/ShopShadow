@@ -284,8 +284,8 @@ export default function App() {
         >
           {adminPage === 'overview' && <AdminOverview />}
           {adminPage === 'orders' && <AdminOrders />}
-          {adminPage === 'products' && <AdminProducts />}
-          {adminPage === 'users' && <AdminUsers />}
+          {adminPage === 'products' && <AdminProducts authToken={authToken!} />}
+          {adminPage === 'users' && <AdminUsers authToken={authToken!} />}
         </AdminLayout>
       )}
 

@@ -1,77 +1,74 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { GlassCard } from '../GlassCard';
 import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
-import { Search, Mail, Calendar } from 'lucide-react';
+import { Search, Mail, Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
+import { getAdminUsers, type AdminUser } from '../../utils/api';
+import { toast } from 'sonner';
 
-interface User {
-  id: string;
-  name: string;
-  email: string;
-  joinDate: string;
-  totalOrders: number;
-  totalSpent: number;
-  status: 'active' | 'inactive';
+interface AdminUsersProps {
+  authToken: string;
 }
 
-// Mock users - this will come from PostgreSQL database later
-const mockUsers: User[] = [
-  {
-    id: 'USR-001',
-    name: 'John Doe',
-    email: 'john@email.com',
-    joinDate: '2025-09-15',
-    totalOrders: 12,
-    totalSpent: 456.78,
-    status: 'active',
-  },
-  {
-    id: 'USR-002',
-    name: 'Jane Smith',
-    email: 'jane@email.com',
-    joinDate: '2025-10-01',
-    totalOrders: 8,
-    totalSpent: 234.56,
-    status: 'active',
-  },
-  {
-    id: 'USR-003',
-    name: 'Mike Wilson',
-    email: 'mike@email.com',
-    joinDate: '2025-08-22',
-    totalOrders: 25,
-    totalSpent: 892.34,
-    status: 'active',
-  },
-  {
-    id: 'USR-004',
-    name: 'Sarah Johnson',
-    email: 'sarah@email.com',
-    joinDate: '2025-07-10',
-    totalOrders: 5,
-    totalSpent: 123.45,
-    status: 'inactive',
-  },
-];
-
-export function AdminUsers() {
+export function AdminUsers({ authToken }: AdminUsersProps) {
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [stats, setStats] = useState({
+    totalUsers: 0,
+    activeUsers: 0,
+    totalRevenue: 0
+  });
 
-  const filteredUsers = mockUsers.filter(user =>
-    user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    user.id.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  useEffect(() => {
+    const fetchUsers = async () => {
+      setLoading(true);
+      try {
+        const data = await getAdminUsers(authToken, page, 20, searchQuery);
+        setUsers(data.users);
+        setTotalPages(data.pagination.totalPages);
+        setTotal(data.pagination.total);
+        if (data.stats) {
+          setStats(data.stats);
+        }
+      } catch (error) {
+        console.error('Failed to fetch users:', error);
+        toast.error('Failed to load users', {
+          duration: 3000,
+          position: 'bottom-right',
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchUsers();
+  }, [authToken, page, searchQuery]);
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
-    return date.toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'short', 
+    return date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
       day: 'numeric'
     });
   };
+
+  if (loading && page === 1) {
+    return (
+      <div className="space-y-6">
+        <div className="space-y-3">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="h-20 bg-slate-200/50 animate-pulse rounded-lg" />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -90,7 +87,10 @@ export function AdminUsers() {
           type="text"
           placeholder="Search users..."
           value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
+          onChange={(e) => {
+            setSearchQuery(e.target.value);
+            setPage(1); // Reset to page 1 on search
+          }}
           className="pl-10 bg-white/50 border-slate-300/50 text-slate-900 placeholder:text-slate-400"
         />
       </div>
@@ -99,18 +99,16 @@ export function AdminUsers() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <GlassCard className="p-5">
           <p className="text-slate-600 text-sm">Total Users</p>
-          <p className="text-slate-900 text-3xl mt-2">{mockUsers.length}</p>
+          <p className="text-slate-900 text-3xl mt-2">{stats.totalUsers}</p>
         </GlassCard>
         <GlassCard className="p-5">
           <p className="text-slate-600 text-sm">Active Users</p>
-          <p className="text-slate-900 text-3xl mt-2">
-            {mockUsers.filter(u => u.status === 'active').length}
-          </p>
+          <p className="text-slate-900 text-3xl mt-2">{stats.activeUsers}</p>
         </GlassCard>
         <GlassCard className="p-5">
           <p className="text-slate-600 text-sm">Total Revenue</p>
           <p className="text-slate-900 text-3xl mt-2">
-            ${mockUsers.reduce((sum, u) => sum + u.totalSpent, 0).toFixed(2)}
+            ${stats.totalRevenue.toFixed(2)}
           </p>
         </GlassCard>
       </div>
@@ -131,47 +129,89 @@ export function AdminUsers() {
               </tr>
             </thead>
             <tbody>
-              {filteredUsers.map((user, index) => (
-                <motion.tr
-                  key={user.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.05 }}
-                  className="border-b border-slate-300/50 last:border-0 hover:bg-slate-800/5"
-                >
-                  <td className="px-6 py-4 text-slate-900">{user.id}</td>
-                  <td className="px-6 py-4 text-slate-900">{user.name}</td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2 text-slate-600">
-                      <Mail className="w-4 h-4" />
-                      {user.email}
+              {loading ? (
+                <tr>
+                  <td colSpan={7} className="text-center py-8">
+                    <div className="flex justify-center">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-900"></div>
                     </div>
                   </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2 text-slate-600">
-                      <Calendar className="w-4 h-4" />
-                      {formatDate(user.joinDate)}
-                    </div>
+                </tr>
+              ) : users.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="text-center py-8 text-slate-500">
+                    {searchQuery ? 'No users found' : 'No users yet'}
                   </td>
-                  <td className="px-6 py-4 text-slate-900">{user.totalOrders}</td>
-                  <td className="px-6 py-4 text-slate-900">${user.totalSpent.toFixed(2)}</td>
-                  <td className="px-6 py-4">
-                    <Badge 
-                      className={user.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}
-                    >
-                      {user.status}
-                    </Badge>
-                  </td>
-                </motion.tr>
-              ))}
+                </tr>
+              ) : (
+                users.map((user, index) => (
+                  <motion.tr
+                    key={user.id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.05 }}
+                    className="border-b border-slate-300/50 last:border-0 hover:bg-slate-800/5"
+                  >
+                    <td className="px-6 py-4 text-slate-900">{user.id}</td>
+                    <td className="px-6 py-4 text-slate-900">{user.name}</td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-2 text-slate-600">
+                        <Mail className="w-4 h-4" />
+                        {user.email}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-2 text-slate-600">
+                        <Calendar className="w-4 h-4" />
+                        {formatDate(user.createdAt)}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-slate-900">{user.totalOrders}</td>
+                    <td className="px-6 py-4 text-slate-900">${user.totalSpent.toFixed(2)}</td>
+                    <td className="px-6 py-4">
+                      <Badge
+                        className={user.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}
+                      >
+                        {user.status}
+                      </Badge>
+                    </td>
+                  </motion.tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
       </GlassCard>
 
-      <p className="text-slate-600 text-sm">
-        Showing {filteredUsers.length} of {mockUsers.length} users
-      </p>
+      {/* Pagination */}
+      <div className="flex items-center justify-between">
+        <p className="text-slate-600 text-sm">
+          Showing {users.length} of {total} users
+        </p>
+        {totalPages > 1 && (
+          <div className="flex items-center gap-2">
+            <button
+              disabled={page === 1}
+              onClick={() => setPage(p => p - 1)}
+              className="px-4 py-2 bg-white/50 border border-slate-300/50 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 flex items-center gap-2"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              Previous
+            </button>
+            <span className="text-slate-600 px-3">
+              Page {page} of {totalPages}
+            </span>
+            <button
+              disabled={page === totalPages}
+              onClick={() => setPage(p => p + 1)}
+              className="px-4 py-2 bg-white/50 border border-slate-300/50 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 flex items-center gap-2"
+            >
+              Next
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

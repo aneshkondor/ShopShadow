@@ -659,3 +659,154 @@ export async function getAdminPendingItems(
     throw new Error(handleApiError(error));
   }
 }
+
+// ============================================================================
+// Admin Users API Functions
+// ============================================================================
+
+export interface AdminUser {
+  id: string;
+  name: string;
+  email: string;
+  role: 'user' | 'admin';
+  status: string;
+  emailVerified: boolean;
+  createdAt: string;
+  updatedAt: string;
+  totalOrders: number;
+  totalSpent: number;
+}
+
+export interface AdminUsersResponse {
+  success: boolean;
+  users: AdminUser[];
+  pagination: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+  stats?: {
+    totalUsers: number;
+    activeUsers: number;
+    totalRevenue: number;
+  };
+}
+
+/**
+ * Fetch admin users list with pagination and search
+ */
+export async function getAdminUsers(
+  token: string,
+  page = 1,
+  limit = 20,
+  search = ''
+): Promise<AdminUsersResponse> {
+  const params = new URLSearchParams({
+    page: page.toString(),
+    limit: limit.toString(),
+    ...(search && { search })
+  });
+
+  const response = await fetch(`${API_BASE}/api/admin/users?${params}`, {
+    headers: getAuthHeaders(token)
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch users');
+  }
+
+  return response.json();
+}
+
+// ============================================================================
+// Admin Products API Functions
+// ============================================================================
+
+/**
+ * Update a product
+ */
+export async function updateProduct(
+  productId: string,
+  updates: {
+    name?: string;
+    description?: string;
+    price?: number;
+    stock?: number;
+    category?: string;
+    imageUrl?: string;
+  },
+  token: string
+): Promise<any> {
+  const response = await fetch(`${API_BASE}/api/admin/products/${productId}`, {
+    method: 'PATCH',
+    headers: getAuthHeaders(token),
+    body: JSON.stringify(updates)
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to update product');
+  }
+
+  return response.json();
+}
+
+/**
+ * Delete a product
+ */
+export async function deleteProduct(
+  productId: string,
+  token: string
+): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/admin/products/${productId}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(token)
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to delete product');
+  }
+}
+
+/**
+ * Fetch all products (public endpoint, but can be used by admin)
+ */
+export async function fetchProducts(
+  page = 1,
+  limit = 100,
+  search = ''
+): Promise<{
+  products: Array<{
+    id: string;
+    name: string;
+    description: string;
+    price: number;
+    stock: number;
+    category: string;
+    image_url: string;
+  }>;
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}> {
+  const params = new URLSearchParams({
+    page: page.toString(),
+    limit: limit.toString(),
+  });
+
+  if (search) {
+    params.append('search', search);
+  }
+
+  const response = await fetch(`${API_BASE}/api/products?${params}`);
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch products');
+  }
+
+  const data = await response.json();
+  return data;
+}
