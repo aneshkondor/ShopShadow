@@ -184,7 +184,8 @@ router.post('/connect', authenticateToken, async (req, res) => {
     }
 
     // Check if device is in valid state for connection
-    if (!['disconnected', 'offline'].includes(device.status)) {
+    // Allow reconnection for disconnected, offline, or inactive devices
+    if (!['disconnected', 'offline', 'inactive'].includes(device.status)) {
       logger.warn('Device not in connectable state', {
         deviceId: device.id,
         status: device.status,
@@ -434,14 +435,16 @@ router.post('/disconnect', authenticateToken, async (req, res) => {
     try {
       await client.query('BEGIN');
 
-      // Disconnect device
-      await client.query(
+      // Disconnect device - set to inactive instead of disconnected
+      // Keep the device record and code for reconnection
+      const result = await client.query(
         `UPDATE devices
          SET connected_user_id = NULL,
-             status = 'disconnected',
+             status = 'inactive',
              last_heartbeat = NULL,
              updated_at = NOW()
-         WHERE id = $1`,
+         WHERE id = $1
+         RETURNING id, code, status`,
         [deviceId]
       );
 
@@ -457,13 +460,16 @@ router.post('/disconnect', authenticateToken, async (req, res) => {
       logger.info('Device disconnected and basket cleaned', {
         userId,
         deviceId,
+        code: result.rows[0].code,
+        status: result.rows[0].status,
         itemsDeleted: deleteResult.rowCount
       });
 
       res.status(200).json({
         success: true,
         data: {
-          message: 'Device disconnected successfully',
+          message: 'Device disconnected. You can reconnect with the same code.',
+          device: result.rows[0],
           itemsCleared: deleteResult.rowCount
         }
       });
@@ -484,6 +490,68 @@ router.post('/disconnect', authenticateToken, async (req, res) => {
       success: false,
       error: 'Failed to disconnect device',
       code: 'DISCONNECTION_ERROR'
+    });
+  }
+});
+
+// =============================================================================
+// POST /api/devices/heartbeat
+// Device heartbeat to keep connection alive (no authentication required)
+// =============================================================================
+
+/**
+ * Update device heartbeat to keep it alive
+ * This is called by the Raspberry Pi periodically
+ *
+ * Request body:
+ * - deviceId: UUID of the device
+ *
+ * Response:
+ * - device: Device status information
+ */
+router.post('/heartbeat', async (req, res) => {
+  const { deviceId } = req.body;
+
+  if (!deviceId) {
+    return res.status(400).json({
+      success: false,
+      error: 'Device ID required',
+      code: 'MISSING_DEVICE_ID'
+    });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE devices
+       SET last_heartbeat = NOW(), status = 'connected'
+       WHERE id = $1
+       RETURNING id, status, last_heartbeat`,
+      [deviceId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Device not found',
+        code: 'DEVICE_NOT_FOUND'
+      });
+    }
+
+    logger.debug('Device heartbeat updated', {
+      deviceId,
+      status: result.rows[0].status
+    });
+
+    res.json({
+      success: true,
+      device: result.rows[0]
+    });
+  } catch (error) {
+    logger.error('Heartbeat failed', { error: error.message, deviceId });
+    res.status(500).json({
+      success: false,
+      error: 'Heartbeat failed',
+      code: 'HEARTBEAT_ERROR'
     });
   }
 });
