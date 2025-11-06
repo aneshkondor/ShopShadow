@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const { Pool } = require('pg');
+const os = require('os');
 const logger = require('../../shared/logger');
 
 // Load environment variables
@@ -9,6 +10,7 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.API_PORT || 3001;
+const HOST = process.env.HOST || 'localhost';
 
 // =============================================================================
 // PostgreSQL Connection Pool
@@ -168,12 +170,34 @@ app.use((err, req, res, next) => {
 // Server Startup
 // =============================================================================
 
-app.listen(PORT, () => {
+// Helper to get LAN IP
+function getLanIP() {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      // Skip internal and non-IPv4 addresses
+      if (iface.family === 'IPv4' && !iface.internal) {
+        return iface.address;
+      }
+    }
+  }
+  return 'localhost';
+}
+
+app.listen(PORT, HOST, () => {
+  const lanIP = getLanIP();
   logger.info(`ShopShadow backend server started on port ${PORT}`, {
     environment: process.env.NODE_ENV || 'development',
     port: PORT,
+    host: HOST,
+    localUrl: `http://localhost:${PORT}`,
+    lanUrl: HOST === '0.0.0.0' ? `http://${lanIP}:${PORT}` : undefined,
     frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173'
   });
+
+  if (HOST === '0.0.0.0') {
+    logger.info(`Access from other devices on your network: http://${lanIP}:${PORT}`);
+  }
 
   // Initialize background cleanup jobs
   initializeCleanupJobs(pool);
