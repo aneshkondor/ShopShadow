@@ -359,6 +359,130 @@ router.get('/products/stats', async (req, res, next) => {
 });
 
 /**
+ * PATCH /api/admin/products/:id
+ * Update product details
+ */
+router.patch('/products/:id', async (req, res, next) => {
+  const { id } = req.params;
+  const { name, description, price, stock, category, imageUrl } = req.body;
+
+  try {
+    // Build update query dynamically
+    const updates = [];
+    const values = [];
+    let paramCount = 1;
+
+    if (name !== undefined) {
+      updates.push(`name = $${paramCount++}`);
+      values.push(name);
+    }
+    if (description !== undefined) {
+      updates.push(`description = $${paramCount++}`);
+      values.push(description);
+    }
+    if (price !== undefined) {
+      updates.push(`price = $${paramCount++}`);
+      values.push(price);
+    }
+    if (stock !== undefined) {
+      updates.push(`stock = $${paramCount++}`);
+      values.push(stock);
+    }
+    if (category !== undefined) {
+      updates.push(`category = $${paramCount++}`);
+      values.push(category);
+    }
+    if (imageUrl !== undefined) {
+      updates.push(`image_url = $${paramCount++}`);
+      values.push(imageUrl);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'No fields to update'
+      });
+    }
+
+    values.push(id);
+    const query = `
+      UPDATE products
+      SET ${updates.join(', ')}, updated_at = NOW()
+      WHERE id = $${paramCount}
+      RETURNING *
+    `;
+
+    const result = await pool.query(query, values);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Product not found'
+      });
+    }
+
+    logger.info('Admin updated product', {
+      userId: req.user.id,
+      productId: id,
+      updates: Object.keys(req.body)
+    });
+
+    res.json({
+      success: true,
+      product: result.rows[0]
+    });
+  } catch (error) {
+    logger.error('Failed to update product', {
+      error: error.message,
+      productId: id,
+      adminId: req.user?.id
+    });
+    next(error);
+  }
+});
+
+/**
+ * DELETE /api/admin/products/:id
+ * Delete a product
+ */
+router.delete('/products/:id', async (req, res, next) => {
+  const { id } = req.params;
+
+  try {
+    const result = await pool.query(
+      `DELETE FROM products WHERE id = $1 RETURNING id, name`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Product not found'
+      });
+    }
+
+    logger.info('Admin deleted product', {
+      userId: req.user.id,
+      productId: id,
+      productName: result.rows[0].name
+    });
+
+    res.json({
+      success: true,
+      message: 'Product deleted',
+      product: result.rows[0]
+    });
+  } catch (error) {
+    logger.error('Failed to delete product', {
+      error: error.message,
+      productId: id,
+      adminId: req.user?.id
+    });
+    next(error);
+  }
+});
+
+/**
  * GET /api/admin/detection-stats
  * Detection analytics including confidence breakdown, hourly trend, and device activity
  */
