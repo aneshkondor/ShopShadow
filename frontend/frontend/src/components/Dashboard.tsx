@@ -5,7 +5,7 @@ import { GlassButton } from './GlassButton';
 import { ConnectionStatus } from './ConnectionStatus';
 import { PendingItemsCard, type PendingItem } from './PendingItemsCard';
 import { EmptyState } from './EmptyState';
-import { ShoppingBasket, LogOut, Trash2, History, Tag, Unplug } from 'lucide-react';
+import { ShoppingBasket, LogOut, Trash2, History, Tag, Unplug, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import {
   AlertDialog,
@@ -42,13 +42,14 @@ interface DashboardProps {
   onCheckout: (items: BasketItem[], total: number) => void;
   onViewOrders: () => void;
   onViewProducts: () => void;
+  onNavigateToConnection?: () => void;
   isDemo?: boolean;
   authToken: string | null;
   userId: string | null;
   connectedDevice: Device | null;
 }
 
-export function Dashboard({ onLogout, onCheckout, onViewOrders, onViewProducts, isDemo = false, authToken, userId, connectedDevice }: DashboardProps) {
+export function Dashboard({ onLogout, onCheckout, onViewOrders, onViewProducts, onNavigateToConnection, isDemo = false, authToken, userId, connectedDevice }: DashboardProps) {
   const [items, setItems] = useState<BasketItem[]>([]);
   const [device, setDevice] = useState<Device | null>(connectedDevice);
   const [isConnected, setIsConnected] = useState(false);
@@ -68,6 +69,14 @@ export function Dashboard({ onLogout, onCheckout, onViewOrders, onViewProducts, 
   const abortControllerRef = useRef<AbortController | null>(null);
   const pendingAbortControllerRef = useRef<AbortController | null>(null);
 
+  // Mounted ref and interval tracking for cleanup
+  const mountedRef = useRef(true);
+  const pollIntervalsRef = useRef<{
+    basket?: NodeJS.Timeout;
+    pending?: NodeJS.Timeout;
+    device?: NodeJS.Timeout;
+  }>({});
+
   const mapApiBasketItems = (apiItems: APIBasketItem[]): BasketItem[] =>
     apiItems.map(item => ({
       id: item.id,
@@ -75,6 +84,17 @@ export function Dashboard({ onLogout, onCheckout, onViewOrders, onViewProducts, 
       quantity: item.quantity,
       price: item.price
     }));
+
+  // Cleanup effect on unmount
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+      // Cancel all intervals on unmount
+      Object.values(pollIntervalsRef.current).forEach(interval => {
+        if (interval) clearInterval(interval);
+      });
+    };
+  }, []);
 
   // Poll device status
   useEffect(() => {
@@ -89,31 +109,43 @@ export function Dashboard({ onLogout, onCheckout, onViewOrders, onViewProducts, 
     }
 
     const checkDeviceStatus = async () => {
+      if (!mountedRef.current) return; // Guard
+
       try {
         const deviceData = await getDeviceStatus(device.id, effectiveAuthToken);
-        setDevice(deviceData);
 
-        if (!deviceData) {
-          setIsConnected(false);
-          return;
+        if (mountedRef.current) { // Guard state update
+          setDevice(deviceData);
+
+          if (!deviceData) {
+            setIsConnected(false);
+            return;
+          }
+
+          const lastHeartbeat = new Date(deviceData.lastHeartbeat || 0).getTime();
+          const secondsSinceHeartbeat = (Date.now() - lastHeartbeat) / 1000;
+
+          setIsConnected(
+            deviceData.status === 'connected' && secondsSinceHeartbeat < 60
+          );
         }
-
-        const lastHeartbeat = new Date(deviceData.lastHeartbeat || 0).getTime();
-        const secondsSinceHeartbeat = (Date.now() - lastHeartbeat) / 1000;
-
-        setIsConnected(
-          deviceData.status === 'connected' && secondsSinceHeartbeat < 60
-        );
       } catch (error) {
         console.error('Failed to check device status:', error);
-        setIsConnected(false);
+        if (mountedRef.current) {
+          setIsConnected(false);
+        }
       }
     };
 
     checkDeviceStatus();
     const interval = setInterval(checkDeviceStatus, 10000);
+    pollIntervalsRef.current.device = interval; // Store reference
 
-    return () => clearInterval(interval);
+    return () => {
+      if (pollIntervalsRef.current.device) {
+        clearInterval(pollIntervalsRef.current.device);
+      }
+    };
   }, [device?.id, effectiveAuthToken, isDemo]);
 
   // Polling logic: Fetch basket every 5 seconds
@@ -175,11 +207,14 @@ export function Dashboard({ onLogout, onCheckout, onViewOrders, onViewProducts, 
 
     // Poll every 5 seconds (matches Flask detection interval)
     const intervalId = setInterval(fetchBasketData, 5000);
+    pollIntervalsRef.current.basket = intervalId; // Store reference
 
     // Cleanup
     return () => {
       isMounted = false;
-      clearInterval(intervalId);
+      if (pollIntervalsRef.current.basket) {
+        clearInterval(pollIntervalsRef.current.basket);
+      }
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
@@ -250,10 +285,13 @@ export function Dashboard({ onLogout, onCheckout, onViewOrders, onViewProducts, 
 
     loadPendingItems(true);
     const intervalId = setInterval(() => loadPendingItems(false), 5000);
+    pollIntervalsRef.current.pending = intervalId; // Store reference
 
     return () => {
       isMounted = false;
-      clearInterval(intervalId);
+      if (pollIntervalsRef.current.pending) {
+        clearInterval(pollIntervalsRef.current.pending);
+      }
       if (pendingAbortControllerRef.current) {
         pendingAbortControllerRef.current.abort();
       }
@@ -264,16 +302,32 @@ export function Dashboard({ onLogout, onCheckout, onViewOrders, onViewProducts, 
   const handleDisconnect = async () => {
     if (!device || !effectiveAuthToken) return;
 
-    setIsDisconnecting(true);
-
     try {
+      // CRITICAL: Cancel all polling FIRST
+      if (pollIntervalsRef.current.basket) {
+        clearInterval(pollIntervalsRef.current.basket);
+        pollIntervalsRef.current.basket = undefined;
+      }
+      if (pollIntervalsRef.current.pending) {
+        clearInterval(pollIntervalsRef.current.pending);
+        pollIntervalsRef.current.pending = undefined;
+      }
+      if (pollIntervalsRef.current.device) {
+        clearInterval(pollIntervalsRef.current.device);
+        pollIntervalsRef.current.device = undefined;
+      }
+
+      // Call disconnect API
       await disconnectDevice(device.id, effectiveAuthToken);
       clearDevice();
+
+      // Clear device state ONLY (keep user logged in)
       setDevice(null);
       setIsConnected(false);
-      setItems([]); // Clear basket items
+      setItems([]); // Clear basket
+      setPendingItems([]); // Clear pending
 
-      toast.success('Device disconnected', {
+      toast.success('Device disconnected. You can reconnect anytime.', {
         duration: 3000,
         position: 'bottom-right',
         style: {
@@ -282,9 +336,9 @@ export function Dashboard({ onLogout, onCheckout, onViewOrders, onViewProducts, 
           border: '1px solid rgba(52, 211, 153, 0.3)',
           color: '#1e293b',
         },
-        description: 'Your basket has been cleared',
       });
     } catch (error: any) {
+      console.error('Disconnect error:', error);
       toast.error('Failed to disconnect device', {
         duration: 3000,
         position: 'bottom-right',
@@ -294,10 +348,7 @@ export function Dashboard({ onLogout, onCheckout, onViewOrders, onViewProducts, 
           border: '1px solid rgba(248, 113, 113, 0.3)',
           color: '#1e293b',
         },
-        description: error.message,
       });
-    } finally {
-      setIsDisconnecting(false);
     }
   };
 
@@ -519,6 +570,37 @@ export function Dashboard({ onLogout, onCheckout, onViewOrders, onViewProducts, 
       {/* Main Content */}
       <main className="px-6">
         <div className="space-y-6">
+          {/* No Device Connected Warning */}
+          {!isDemo && !isConnected && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-6"
+            >
+              <GlassCard className="p-6 bg-amber-50 border-amber-200">
+                <div className="flex items-start gap-4">
+                  <AlertCircle className="w-6 h-6 text-amber-600 mt-1 flex-shrink-0" />
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-amber-900 mb-2">
+                      No Device Connected
+                    </h3>
+                    <p className="text-amber-700 text-sm mb-4">
+                      Connect a detection device to start shopping. You can browse products and view order history while disconnected.
+                    </p>
+                    {onNavigateToConnection && (
+                      <GlassButton
+                        onClick={onNavigateToConnection}
+                        className="bg-amber-500 hover:bg-amber-600 text-white"
+                      >
+                        Connect Device
+                      </GlassButton>
+                    )}
+                  </div>
+                </div>
+              </GlassCard>
+            </motion.div>
+          )}
+
           {!isDemo && pendingItems.length > 0 && (
             <motion.div
               initial={{ opacity: 0, y: -20 }}
@@ -614,9 +696,10 @@ export function Dashboard({ onLogout, onCheckout, onViewOrders, onViewProducts, 
               <GlassButton
                 variant="primary"
                 onClick={() => onCheckout(items, totalCost)}
-                className="w-full text-white py-4"
+                disabled={!isDemo && !isConnected}
+                className={`w-full text-white py-4 ${!isDemo && !isConnected ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
-                Proceed to Checkout
+                {!isDemo && !isConnected ? 'Connect Device to Checkout' : 'Proceed to Checkout'}
               </GlassButton>
             </div>
           </GlassCard>
