@@ -14,6 +14,13 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from camera.capture import initCamera, captureFrame, releaseCamera
 from detection.detector import processFrame, routeDetections
+from detection.visualizer import (
+    drawDetections,
+    showFrame,
+    addInfoOverlay,
+    createVisualizationWindow,
+    destroyVisualizationWindow
+)
 from api.backend_client import BackendClient
 from models.yolo_detector import loadModel, loadMapping
 from shared.logger import logger
@@ -21,10 +28,14 @@ from shared.logger import logger
 
 # Global camera reference for shutdown handler
 camera = None
+show_visualization = False
+WINDOW_NAME = 'ShopShadow Detection'
 
 
 def shutdown_handler(signum, frame):
     """Handle graceful shutdown on SIGINT/SIGTERM."""
+    global show_visualization
+
     logger.info("=" * 60)
     logger.info("Shutdown signal received, cleaning up...")
     logger.info("=" * 60)
@@ -32,6 +43,11 @@ def shutdown_handler(signum, frame):
     if camera is not None:
         releaseCamera(camera)
         logger.info("Camera released")
+
+    # Close visualization window if open
+    if show_visualization:
+        destroyVisualizationWindow(WINDOW_NAME)
+        logger.info("Visualization window closed")
 
     # Flush logs
     for handler in logger.handlers:
@@ -43,7 +59,7 @@ def shutdown_handler(signum, frame):
 
 def main():
     """Main detection loop."""
-    global camera
+    global camera, show_visualization
 
     # Load environment variables
     load_dotenv()
@@ -104,13 +120,23 @@ def main():
         # ===== 3. DETECTION CONFIGURATION =====
         confidence_threshold = float(os.getenv('CONFIDENCE_THRESHOLD', 0.7))
         detection_interval = int(os.getenv('DETECTION_INTERVAL', 5))
+        show_visualization = os.getenv('SHOW_VISUALIZATION', 'false').lower() == 'true'
 
         logger.info("=" * 60)
         logger.info("Configuration:")
         logger.info(f"  Confidence Threshold: {confidence_threshold}")
         logger.info(f"  Detection Interval: {detection_interval}s")
         logger.info(f"  Device ID: {device_id}")
+        logger.info(f"  Show Visualization: {show_visualization}")
         logger.info("=" * 60)
+
+        # ===== 3.5. VISUALIZATION WINDOW =====
+        if show_visualization:
+            logger.info("Creating visualization window...")
+            createVisualizationWindow(WINDOW_NAME)
+            logger.info("✅ Visualization window created")
+            logger.info("   Press 'q' in the window to quit")
+            logger.info("=" * 60)
 
         # ===== 4. MAIN DETECTION LOOP =====
         logger.info("Starting detection loop...")
@@ -137,6 +163,32 @@ def main():
             # Run detection
             high_conf, low_conf = processFrame(frame, model, confidence_threshold)
             logger.info(f"Detections: {len(high_conf)} high confidence, {len(low_conf)} low confidence")
+
+            # Visualize detections if enabled
+            if show_visualization:
+                # Combine all detections for visualization
+                all_detections = high_conf + low_conf
+
+                # Draw detections on frame
+                display_frame = drawDetections(frame, all_detections, mapping, show_confidence=True)
+
+                # Add info overlay
+                info_lines = [
+                    f"Iteration: {iteration}",
+                    f"High Conf: {len(high_conf)}",
+                    f"Low Conf: {len(low_conf)}",
+                    f"Total: {len(all_detections)}",
+                    f"Device: {device_id[:8]}...",
+                ]
+                display_frame = addInfoOverlay(display_frame, info_lines, position='top-left')
+
+                # Show frame
+                key = showFrame(WINDOW_NAME, display_frame, wait_key=1)
+
+                # Check for 'q' key to quit
+                if key == ord('q'):
+                    logger.info("User pressed 'q', shutting down...")
+                    shutdown_handler(None, None)
 
             # Route detections
             basket_payloads, pending_payloads = routeDetections(
@@ -215,6 +267,10 @@ def main():
     finally:
         if camera is not None:
             releaseCamera(camera)
+
+        # Close visualization window
+        if show_visualization:
+            destroyVisualizationWindow(WINDOW_NAME)
 
 
 if __name__ == '__main__':
