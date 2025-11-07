@@ -48,7 +48,11 @@ app.locals.pool = pool;
 // =============================================================================
 
 // CORS - Allow frontend Vite dev server and server-to-server requests
-const allowedOrigins = [process.env.FRONTEND_URL || 'http://localhost:5173'];
+// Support comma-separated origins for LAN testing
+const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173')
+  .split(',')
+  .map(url => url.trim());
+
 app.use(cors({
   origin: function (origin, callback) {
     // Allow requests with no origin (like server-to-server, mobile apps, or curl requests)

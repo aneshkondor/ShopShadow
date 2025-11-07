@@ -293,5 +293,136 @@
 
 ## Phase 4: Frontend Enhancement & Integration
 
-(Continuing with enhanced format for remaining phases in next edit operation...)
+### Overview
+Integrate the low-confidence approval workflow (NEW FEATURE from Phase 2) into the React frontend, replace mock data with real backend API integration, implement real-time basket polling synchronized with Flask detection service, and enhance admin dashboard with detection analytics.
+
+**Agent:** Agent_Frontend
+**Tasks:** 4.1, 4.2, 4.3, 4.4, 4.5, 4.6 (6 tasks)
+**Dependencies:** Phase 2 (Backend API complete), Phase 3 (Flask Detection Service operational)
+
+---
+
+### Task 4.1 – Create Pending Items Approval Component │ Agent_Frontend
+
+- **Objective:** Build a new React component PendingItemsCard to display low-confidence detections (<70%) awaiting user approval/decline with confidence scores, product details, and quantity adjustment controls using existing Radix UI and glassmorphic design patterns.
+- **Output:** frontend/frontend/src/components/PendingItemsCard.tsx (150-200 lines) with TypeScript interfaces, approve/decline handlers, quantity stepper, confidence badges, loading states, and Framer Motion animations.
+- **Guidance:** This is the UI for the NEW FEATURE. Match existing Dashboard glassmorphic aesthetic. Must handle async approve/decline actions with proper loading states.
+
+1. **Create Component File and Interface:** Create frontend/frontend/src/components/PendingItemsCard.tsx with TypeScript interface PendingItem { id, product_id, name, quantity, confidence (0-1 scale), timestamp, device_id, status } and PendingItemsCardProps { items, onApprove: (itemId, quantity) => Promise<void>, onDecline: (itemId) => Promise<void>, isLoading? }, import motion/react, lucide-react icons, GlassCard, GlassButton, toast from sonner.
+2. **Design Card Layout:** Use GlassCard wrapper with amber/yellow accent (indicates "needs attention"), header section with AlertCircle icon and "Items Awaiting Approval" title with count badge, conditional rendering for empty state (message: "All detections confirmed! No items need approval."), and list of pending items.
+3. **Build Individual Pending Item Row:** For each item display card with product name (bold), confidence score badge with color coding (60-69% amber, 50-59% orange, <50% red), detected quantity (e.g., "Detected: 2 items"), relative timestamp ("2 minutes ago"), and confidence percentage badge (e.g., "65% confident").
+4. **Implement Quantity Adjustment:** Add quantity stepper controls (minus/plus buttons), local state const [qty, setQty] = useState(item.quantity), min: 1, max: item.quantity * 2 (allow correction if detection undercounted), display current quantity in input field, use Radix UI Button or custom GlassButton.
+5. **Create Action Buttons:** Two-button layout: "Approve" (primary, green accent) calls onApprove(item.id, qty), "Decline" (secondary, red accent) calls onDecline(item.id), show loading spinner during API call using isLoading prop, disable both buttons while loading, success toast messages ("Item approved and added to basket" or "Item declined"), use Framer Motion for button press animations.
+6. **Add Visual Feedback:** Animate item entry with motion.div (slide-in from top), animate item exit when approved/declined (slide-out with fade), use AnimatePresence for smooth transitions, loading states disable buttons and show spinner icon, error handling displays error toast if API call fails and keeps item visible.
+7. **Accessibility & Responsive Design:** ARIA labels on all interactive elements, keyboard navigation support (Tab, Enter, Escape), mobile-responsive stack buttons vertically on small screens, touch-friendly button sizes (min 44px height), screen reader announcements for approve/decline actions.
+8. **Styling:** Match existing Dashboard glassmorphic aesthetic using Tailwind utility classes, amber/yellow header to differentiate from regular basket (blue/slate), confidence badge with gradient background, subtle box-shadow and backdrop-filter blur, hover states on action buttons.
+
+**Depends on:** None (component only)
+
+---
+
+### Task 4.2 – Integrate Pending Items API into Dashboard │ Agent_Frontend
+
+- **Objective:** Connect the PendingItemsCard component to backend API (GET /api/basket/:userId/pending-items, POST approve, POST decline), implement 5-second polling for real-time updates, handle approve/decline actions with proper state management, and synchronize with basket updates.
+- **Output:** Updated frontend/frontend/src/components/Dashboard.tsx (add ~100 lines), API utility functions in frontend/frontend/src/utils/api.ts (create if not exists), working approve/decline flow with backend integration.
+- **Guidance:** This integrates the NEW FEATURE with backend. Must handle authentication, polling, error states, and synchronize with basket state after approval.
+
+1. **Create API Utility Functions:** Create frontend/frontend/src/utils/api.ts with const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001', authentication helper getAuthHeaders(token), implement fetchPendingItems(userId, token): Promise<PendingItem[]> calling GET /api/basket/:userId/pending-items, approvePendingItem(itemId, quantity, token): Promise<BasketResponse> calling POST /api/basket/pending-items/:itemId/approve with body { quantity }, declinePendingItem(itemId, token): Promise<void> calling POST /api/basket/pending-items/:itemId/decline, include error handling and type-safe responses.
+2. **Update Dashboard Component State:** Import PendingItemsCard component, add state const [pendingItems, setPendingItems] = useState<PendingItem[]>([]), add state const [isLoadingPending, setIsLoadingPending] = useState(false), add state const [authToken, setAuthToken] = useState<string | null>(null) or use context, get userId from user context/props.
+3. **Implement Pending Items Polling:** Create useEffect hook: if (!userId || !authToken) return; async fetchPending() { try { items = await fetchPendingItems(userId, authToken); setPendingItems(items); } catch (error) { console.error (no toast for polling errors to avoid spam); } }; fetchPending(); interval = setInterval(fetchPending, 5000); return clearInterval(interval);, match 5-second polling interval with basket polling from Phase 2 design.
+4. **Implement Approve Handler:** Create handleApprovePending async (itemId, quantity) { setIsLoadingPending(true); try { updatedBasket = await approvePendingItem(itemId, quantity, authToken); setItems(updatedBasket.data.items); setPendingItems(prev => prev.filter(item => item.id !== itemId)); toast.success('Item approved and added to basket'); } catch (error) { toast.error('Failed to approve item. Please try again.'); } finally { setIsLoadingPending(false); } }, update basket total after approval.
+5. **Implement Decline Handler:** Create handleDeclinePending async (itemId) { setIsLoadingPending(true); try { await declinePendingItem(itemId, authToken); setPendingItems(prev => prev.filter(item => item.id !== itemId)); toast.success('Item declined'); } catch (error) { toast.error('Failed to decline item. Please try again.'); } finally { setIsLoadingPending(false); } }.
+6. **Add PendingItemsCard to Dashboard Layout:** Position PendingItemsCard ABOVE basket items in main content, conditional rendering: only show if pendingItems.length > 0, pass props: items={pendingItems}, onApprove={handleApprovePending}, onDecline={handleDeclinePending}, isLoading={isLoadingPending}, add visual separator between pending items and basket.
+7. **Handle Authentication State:** For demo mode use mock token or skip auth, for production retrieve token from localStorage or context, handle 401 Unauthorized: clear token and redirect to login, handle 403 Forbidden: show error toast.
+8. **Error Handling & Edge Cases:** Network errors show toast and retry on next poll, empty response sets pendingItems = [], item already approved/declined handle 400/404 gracefully, concurrent actions disable buttons during loading, stale data refresh both pending items and basket after action.
+9. **Testing Scenarios:** Approve item with default quantity should appear in basket, approve item with adjusted quantity should reflect new quantity in basket, decline item should disappear from pending list, multiple pending items should be independently actionable, network failure should show error and allow retry.
+
+**Depends on:** Task 4.1 Output
+
+---
+
+### Task 4.3 – Implement Real-Time Basket Polling │ Agent_Frontend
+
+- **Objective:** Replace mock basket data in Dashboard with real backend API integration (GET /api/basket/:userId), implement 5-second polling for basket updates synchronized with Flask detection service, handle basket state management, and support real-time detection synchronization.
+- **Output:** Updated frontend/frontend/src/components/Dashboard.tsx (replace mock data with API calls), basket API functions in frontend/frontend/src/utils/api.ts, real-time synchronization with Flask detection service.
+- **Guidance:** This removes ALL mock data and creates the full detection → backend → frontend flow. Critical for end-to-end functionality.
+
+1. **Create Basket API Functions:** Add to frontend/frontend/src/utils/api.ts: interface BasketItem { id, productId, name, price, category, imageUrl, quantity, confidence, subtotal, addedAt, deviceId }, interface BasketResponse { success, data: { items, total, itemCount } }, fetchBasket(userId, token): Promise<BasketResponse> calling GET /api/basket/:userId, removeBasketItem(itemId, token): Promise<void> calling DELETE /api/basket/items/:itemId, include error handling.
+2. **Remove Mock Data from Dashboard:** Delete mock items array const mockItems: BasketItem[] = [...], change initial state: const [items, setItems] = useState<BasketItem[]>([]), add loading state: const [isLoadingBasket, setIsLoadingBasket] = useState(true).
+3. **Implement Basket Polling:** Create useEffect for basket polling: if (!userId || !authToken) return; async fetchBasketData() { try { basketResponse = await fetchBasket(userId, authToken); setItems(basketResponse.data.items); setIsLoadingBasket(false); } catch (error) { console.error; if (isLoadingBasket) toast.error('Failed to load basket'); } }; fetchBasketData(); interval = setInterval(fetchBasketData, 5000); return clearInterval(interval);, polling interval matches Flask detection interval (5 seconds).
+4. **Update Remove Item Handler:** Modify handleRemoveItem to call backend API: async (id) { try { await removeBasketItem(id, authToken); setItems(items.filter(item => item.id !== id)); toast.success('Item removed from basket'); } catch (error) { toast.error('Failed to remove item. Please try again.'); } }, keep TODO comment about security concern (manual deletion in production).
+5. **Update Total Calculation:** Use backend-provided total instead of calculating client-side: const [basketTotal, setBasketTotal] = useState(0); const [itemCount, setItemCount] = useState(0); update in fetchBasketData: setBasketTotal(basketResponse.data.total); setItemCount(basketResponse.data.itemCount);, fallback calculate client-side if backend doesn't provide.
+6. **Add Loading States:** Show skeleton UI while isLoadingBasket === true using Radix UI Skeleton component or custom loading state, skeleton for basket items: {isLoadingBasket ? <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-20 bg-slate-200/50 animate-pulse rounded-lg" />)}</div> : actual basket items}.
+7. **Handle Empty Basket State:** Keep existing EmptyState component, show when items.length === 0 && !isLoadingBasket, message: "Your basket is empty. Start shopping or connect a device to begin!".
+8. **Synchronization Logic:** Ensure basket updates immediately after pending item approval (Task 4.2), Flask detection service adds item, manual item removal, no duplicate polling requests (cancel previous request if new one starts using AbortController or debounce), handle race conditions.
+9. **Connection Status Integration:** Update isConnected state based on device pairing status, fetch device status from backend: GET /api/devices/:userId/status, show "Disconnected" if no active device, disable checkout if not connected.
+10. **Error Handling:** 401 Unauthorized redirect to login, 403 Forbidden show permission error, 404 Not Found empty basket, 500 Server Error show error toast and retry on next poll, network offline show offline indicator.
+11. **Performance Optimization:** Memoize basket items with useMemo, debounce rapid state updates, use React.memo for BasketItem components to prevent unnecessary re-renders, cancel fetch requests on component unmount.
+
+**Depends on:** Phase 2 backend basket endpoints, Phase 3 Flask detection service
+
+---
+
+### Task 4.4 – Device Connection Integration │ Agent_Frontend
+
+- **Objective:** Connect the ConnectionPage component to backend device pairing API (POST /api/devices/connect), implement 4-digit code entry and validation, display connection status in Dashboard using real device status polling, and handle device disconnection scenarios.
+- **Output:** Updated frontend/frontend/src/components/ConnectionPage.tsx (integrate with backend API), updated frontend/frontend/src/components/ConnectionStatus.tsx (show real device status), device API functions in frontend/frontend/src/utils/api.ts.
+- **Guidance:** This enables users to pair their mobile app with the detection device (Raspberry Pi or MacBook camera running Flask service).
+
+1. **Create Device API Functions:** Add to frontend/frontend/src/utils/api.ts: interface Device { id, code, userId, status: 'active' | 'inactive' | 'pending', lastHeartbeat, createdAt }, connectDevice(code, token): Promise<Device> calling POST /api/devices/connect with body { code }, getDeviceStatus(userId, token): Promise<Device | null> calling GET /api/devices/:userId/status, disconnectDevice(deviceId, token): Promise<void> calling POST /api/devices/:deviceId/disconnect, include error handling.
+2. **Update ConnectionPage Component:** Remove mock connection logic, add state: const [code, setCode] = useState('') (4 digits), const [isConnecting, setIsConnecting] = useState(false), const [error, setError] = useState<string | null>(null), use Radix UI InputOTP component for code entry (already imported).
+3. **Implement 4-Digit Code Entry:** Use InputOTP component with 4 slots: <InputOTP maxLength={4} value={code} onChange={(value) => setCode(value)} pattern="^[0-9]*$"><InputOTPGroup><InputOTPSlot index={0-3} /></InputOTPGroup></InputOTP>, auto-submit when 4 digits entered, numeric keyboard on mobile.
+4. **Implement Connection Handler:** Create handleConnect async () { if (code.length !== 4) { setError('Please enter a 4-digit code'); return; } setIsConnecting(true); setError(null); try { device = await connectDevice(code, authToken); toast.success(`Device connected! ID: ${device.id}`); onConnect(device); } catch (error) { setError(error.message || 'Invalid code. Please try again.'); setCode(''); toast.error('Connection failed'); } finally { setIsConnecting(false); } }.
+5. **Add Code Display for Demo:** For demo mode display available device code from backend, fetch from GET /api/devices/available (returns list of pending devices), show hint: "Demo code: 1234" (if demo device exists).
+6. **Update ConnectionStatus Component:** Modify to show real device status, fetch device status on mount and poll every 10 seconds, display states: "Connected" (green dot) device active with heartbeat <60s ago, "Disconnected" (red dot) no device or heartbeat >60s ago, "Pending" (yellow dot) device paired but no heartbeat yet, add click handler to show device details (ID, last heartbeat).
+7. **Implement Device Status Polling in Dashboard:** Add useEffect in Dashboard for device status: if (!userId || !authToken) return; async checkDeviceStatus() { device = await getDeviceStatus(userId, authToken); setConnectedDevice(device); setIsConnected(device?.status === 'active'); }; checkDeviceStatus(); interval = setInterval(checkDeviceStatus, 10000); return clearInterval(interval);.
+8. **Handle Disconnection:** Add "Disconnect Device" option in Dashboard settings/menu, confirm dialog before disconnecting using Radix UI AlertDialog: <AlertDialog><AlertDialogTrigger>Disconnect Device</AlertDialogTrigger><AlertDialogContent><AlertDialogTitle>Disconnect Device?</AlertDialogTitle><AlertDialogDescription>Your basket items will be saved, but new detections will stop.</AlertDialogDescription><AlertDialogAction onClick={handleDisconnect}>Disconnect</AlertDialogAction><AlertDialogCancel>Cancel</AlertDialogCancel></AlertDialogContent></AlertDialog>, clear device state after disconnection.
+9. **Error States:** Invalid code (not found) show "Invalid code. Please check and try again.", code already in use show "This device is already connected to another user.", network error show "Connection failed. Please check your internet.", device inactive show reconnect option.
+10. **UX Enhancements:** Animate code entry with Framer Motion, shake animation on error, success animation on connection, visual feedback during connection attempt, skip connection page if already connected (check on mount).
+
+**Depends on:** Phase 2 device pairing endpoints
+
+---
+
+### Task 4.5 – Admin Detection Analytics Dashboard │ Agent_Frontend
+
+- **Objective:** Enhance the admin dashboard with detection analytics including high/low confidence detection breakdown, device activity monitoring, pending items queue overview across all users, and real-time detection stats with charts and visualizations.
+- **Output:** Updated frontend/frontend/src/components/admin/AdminOverview.tsx (add detection analytics section), new component frontend/frontend/src/components/admin/DetectionAnalytics.tsx (optional, or inline), admin API functions for detection stats.
+- **Guidance:** Provides admin visibility into detection system performance, pending approvals across all users, and device health monitoring. Use recharts for visualizations.
+
+1. **Create Admin Detection Stats API:** Add to backend (if not exists): GET /api/admin/detection-stats (requires admin auth) returning DetectionStats { totalDetections, highConfidence, lowConfidence, pendingApprovals, approvalRate (percentage), avgConfidence, detectionsToday, detectionsByHour: [{hour, count}], deviceActivity: [{deviceId, lastHeartbeat, detectionCount, status}] }, or use existing analytics endpoint from Phase 2 Task 2.8.
+2. **Fetch Detection Stats:** Add to frontend/frontend/src/utils/api.ts: getDetectionStats(token): Promise<DetectionStats> calling GET /api/admin/detection-stats, include error handling.
+3. **Update AdminOverview Component:** Import Chart components from recharts (already in package.json), add state: const [detectionStats, setDetectionStats] = useState<DetectionStats | null>(null), fetch stats on mount and poll every 15 seconds.
+4. **Create Detection Overview Cards:** Add 4 stat cards in grid layout: "Total Detections Today" (large number with trend indicator), "High Confidence" (count and percentage with green accent), "Low Confidence" (count and percentage with amber accent), "Pending Approvals" (count with link to pending items queue), use GlassCard for each stat, add icon for each metric (CheckCircle, AlertCircle, Clock, TrendingUp).
+5. **Build Confidence Distribution Chart:** Use recharts BarChart or PieChart, show split between high confidence (≥70%) and low confidence (<70%), color coding: Green for high and Amber for low, display percentages on chart.
+6. **Create Detections Timeline Chart:** Use recharts LineChart or AreaChart, X-axis: Hours (last 24 hours), Y-axis: Detection count, show peak detection times.
+7. **Add Device Activity Monitor:** Table showing all registered devices: Device ID (truncated with tooltip for full ID), Last Heartbeat (relative time: "2 minutes ago"), Detection Count (today), Status indicator (green dot = active, red dot = inactive), sort by last heartbeat (most recent first), highlight inactive devices (heartbeat >5 minutes ago).
+8. **Create Pending Approvals Queue:** Table of all pending items across all users: User email, Product name, Confidence score, Time pending, Quick view button (modal with item details), filter by confidence range, sort by time pending (oldest first).
+9. **Add Real-Time Updates:** Implement polling (15-second interval), auto-refresh charts and stats, visual indicator when data updates (subtle flash or badge).
+10. **Performance Metrics:** Add "Approval Rate" metric: (approved / (approved + declined)) * 100, add "Avg Confidence" metric: Average of all detections, show improvement trends (comparison to yesterday).
+11. **Export Functionality (Optional Enhancement):** "Export Report" button, download CSV with detection stats, date range selector.
+
+**Depends on:** Phase 2 admin endpoints, Phase 3 Flask detection service
+
+---
+
+### Task 4.6 – End-to-End Integration Testing & Polish │ Agent_Frontend
+
+- **Objective:** Test the complete user flow from device connection → detection → pending approval → basket → checkout, fix any integration bugs, improve error handling, add loading states, polish UX, and document test results comprehensively.
+- **Output:** Integration test documentation in frontend/frontend/src/INTEGRATION_TEST_RESULTS.md, bug fixes and UX improvements across all Phase 4 components, updated error handling and loading states, final QA checklist.
+- **Guidance:** Comprehensive testing task to ensure all pieces work together. Focus on edge cases, error scenarios, and user experience polish.
+
+1. **Create Test Plan Document:** Create frontend/frontend/src/INTEGRATION_TEST_RESULTS.md, document test scenarios: Happy path (full flow works), Error scenarios (network failures, auth errors), Edge cases (empty states, concurrent actions), Performance (polling performance, memory leaks), Cross-browser compatibility.
+2. **Test Complete User Flow (Happy Path):** Step 1: User logs in (demo@email.com / 1234), Step 2: Navigate to ConnectionPage, Step 3: Enter 4-digit device code, Step 4: Connect successfully → Dashboard loads, Step 5: Flask detection service detects item (run python flask-detection/main.py), Step 6: High confidence item (≥70%) appears in basket automatically, Step 7: Low confidence item (<70%) appears in PendingItemsCard, Step 8: User approves pending item with quantity adjustment, Step 9: Approved item moves to basket, Step 10: User declines another pending item, Step 11: Declined item disappears, Step 12: User removes item from basket, Step 13: User proceeds to checkout, Step 14: Order created successfully. Expected: All steps complete without errors.
+3. **Test Error Scenarios:** Network Failure (disconnect internet during basket polling, expected: show offline indicator and retry on reconnect), Invalid Auth Token (manually clear localStorage token, expected: redirect to login with error message), Device Disconnection (stop Flask service, expected: ConnectionStatus shows red and user can reconnect), Duplicate Approval (approve item then try again for race condition, expected: handle 404 gracefully with error toast), Concurrent Actions (approve multiple pending items rapidly, expected: queue actions and prevent duplicate requests).
+4. **Test Edge Cases:** Empty States (empty basket shows EmptyState, no pending items hides PendingItemsCard or shows empty message, no products shows EmptyState in ProductCatalog), Maximum Quantities (approve pending item with max quantity 2x detected, expected: basket reflects correct quantity), Rapid Polling (check Network tab for duplicate requests, expected: no duplicates within polling interval), Stale Data (approve item and check if basket updates immediately not wait for next poll, expected: optimistic update or immediate refresh).
+5. **Performance Testing:** Memory Leaks (run app for 5 minutes with polling active, check Chrome DevTools Memory tab, expected: no memory growth over time), Polling Performance (open Network tab and observe polling requests, expected: requests complete <500ms with no errors), Component Re-renders (use React DevTools Profiler, expected: minimal unnecessary re-renders).
+6. **Cross-Browser Testing:** Test on Chrome, Safari, Firefox, test on mobile (iOS Safari, Chrome Android), verify glassmorphic styling works (backdrop-filter support), test touch interactions on mobile.
+7. **Fix Identified Bugs:** Document each bug in test results document, create GitHub issues or fix immediately, prioritize critical bugs (breaks user flow) vs. minor bugs (cosmetic).
+8. **UX Polish Improvements:** Loading States (add skeleton loaders for initial basket load, spinner during pending item actions, disabled state on buttons during API calls), Error Messages (user-friendly messages avoiding technical jargon, actionable errors with "Retry" button), Animations (smooth transitions between states, Framer Motion animations for item entry/exit, loading spinner animations), Empty States (helpful messages with next actions, icons to make empty states visually appealing).
+9. **Accessibility Audit:** Run Lighthouse accessibility audit, check keyboard navigation (Tab through all interactive elements), test screen reader (VoiceOver on Mac, NVDA on Windows), verify ARIA labels on all custom components, color contrast check (WCAG AA compliance).
+10. **Create Final QA Checklist:** Document all tested scenarios, list known issues (if any remain), recommendation: "Ready for production" or "Needs fixes", include screenshots of key flows.
+11. **Documentation Updates:** Update 01-user-flows-and-states.md with pending items flow, update 03-api-endpoints-and-data.md if API changes made, add screenshots to README (optional).
+
+**Depends on:** Tasks 4.1, 4.2, 4.3, 4.4, 4.5 Output
 
