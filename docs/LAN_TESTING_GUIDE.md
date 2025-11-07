@@ -6,6 +6,17 @@
 
 ---
 
+## 🎉 Zero-Config Setup!
+
+ShopShadow now **automatically detects your LAN IP** - no manual configuration needed!
+
+**How it works:**
+- Frontend auto-detects whether you're accessing via localhost or LAN IP
+- Backend automatically allows all private IP ranges in development mode
+- Just start the services and it works on any device on your WiFi
+
+---
+
 ## Prerequisites
 
 - All devices must be on the **same WiFi network**
@@ -15,19 +26,83 @@
 
 ---
 
-## Step 1: Find Your Mac's LAN IP Address
+## Quick Start (2 Steps!)
 
-Run this command on your Mac:
+### Step 1: Start Backend
 
 ```bash
-ipconfig getifaddr en0
+cd backend
+npm start
 ```
 
-**Example output:** `169.233.209.238`
+**You'll see:**
+```
+ShopShadow backend server started on port 3001
+Access from other devices on your network: http://10.0.0.131:3001
+```
 
-> **Note:** If `en0` doesn't work, try `en1` or use System Settings → Network to find your IP.
+**Note the LAN IP shown** (e.g., `10.0.0.131`) - you'll use this on other devices.
 
-**Save this IP address** - you'll need it for configuration.
+### Step 2: Start Frontend
+
+```bash
+cd frontend/frontend
+npm run dev:lan
+```
+
+**You'll see:**
+```
+➜  Local:   http://localhost:5173/
+➜  Network: http://10.0.0.131:5173/
+```
+
+**That's it!** No configuration files to edit.
+
+---
+
+## Testing from Different Devices
+
+### On Mac (localhost)
+- Open browser: `http://localhost:5173`
+- ✅ Automatically connects to `http://localhost:3001`
+
+### On iPhone/iPad
+1. Connect to same WiFi as Mac
+2. Open Safari: `http://10.0.0.131:5173` (use the IP from Step 1)
+3. ✅ Automatically connects to `http://10.0.0.131:3001`
+
+### On Raspberry Pi (Flask Detection)
+Update `flask-detection/.env`:
+```env
+BACKEND_API_URL=http://10.0.0.131:3001
+```
+(Use the IP from Step 1)
+
+---
+
+## How Auto-Detection Works
+
+**Frontend (api.ts):**
+```typescript
+// Automatically detects based on window.location.hostname
+// localhost:5173 → localhost:3001
+// 10.0.0.131:5173 → 10.0.0.131:3001
+```
+
+**Backend (server.js):**
+```javascript
+// In development mode, automatically allows:
+// - localhost, 127.0.0.1
+// - All private IP ranges: 10.x.x.x, 172.16-31.x.x, 192.168.x.x
+```
+
+**No .env.local needed!** ✨
+
+---
+
+## Old Method (Manual IP Configuration)
+
+If you need to override the auto-detection:
 
 ---
 
