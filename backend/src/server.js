@@ -48,20 +48,41 @@ app.locals.pool = pool;
 // =============================================================================
 
 // CORS - Allow frontend Vite dev server and server-to-server requests
-// Support comma-separated origins for LAN testing
-const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173')
-  .split(',')
-  .map(url => url.trim());
-
+// In development, accept any local network origin (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+// In production, only allow specified origins
 app.use(cors({
   origin: function (origin, callback) {
     // Allow requests with no origin (like server-to-server, mobile apps, or curl requests)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) === -1) {
-      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-      return callback(new Error(msg), false);
+
+    // In development mode, allow any localhost or private IP range
+    if (process.env.NODE_ENV === 'development') {
+      // Allow localhost
+      if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
+        return callback(null, true);
+      }
+
+      // Allow private IP ranges (LAN)
+      // 10.0.0.0 - 10.255.255.255
+      // 172.16.0.0 - 172.31.255.255
+      // 192.168.0.0 - 192.168.255.255
+      const privateIpPattern = /^https?:\/\/(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3})(:\d+)?/;
+      if (privateIpPattern.test(origin)) {
+        return callback(null, true);
+      }
     }
-    return callback(null, true);
+
+    // In production, check against allowed origins
+    const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173')
+      .split(',')
+      .map(url => url.trim());
+
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      return callback(null, true);
+    }
+
+    const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+    return callback(new Error(msg), false);
   },
   credentials: true
 }));

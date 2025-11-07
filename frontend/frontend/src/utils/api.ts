@@ -3,7 +3,29 @@
  * Handles authentication and device management endpoints
  */
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:3001';
+// Auto-detect API URL based on current host
+// If running on localhost, use localhost backend
+// If running on LAN IP (e.g., from phone), use same IP for backend
+function getApiBase(): string {
+  // Allow override via environment variable
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+
+  // Auto-detect based on current hostname
+  const hostname = window.location.hostname;
+
+  // If accessing via localhost, use localhost backend
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return 'http://localhost:3001';
+  }
+
+  // If accessing via LAN IP, use same IP for backend
+  // This works when accessing from phone: http://10.0.0.131:5173 → http://10.0.0.131:3001
+  return `http://${hostname}:3001`;
+}
+
+const API_BASE = getApiBase();
 
 // ============================================================================
 // Type Definitions
