@@ -71,3 +71,6 @@ Thumbs.db
 # Reference Material (not part of monorepo)
 agentic-project-management/
 ShopShadow-PI/
+
+# Archive (old planning documents)
+.archive/
